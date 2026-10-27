@@ -1,0 +1,6 @@
+Workout #,Date,Workout Name,Duration (sec),Exercise Name,Set Order,Weight (kg),Reps,RPE,Distance (meters),Seconds,Notes,Workout Notes
+1,2026-10-20 18:02:11,Torso,4210,Butterfly (Machine),1,55,11,,,,,
+1,2026-10-20 18:02:11,Torso,4210,Butterfly (Machine),2,55,9,,,,,
+1,2026-10-20 18:02:11,Torso,4210,Lateral Raise (Cable),1,7.5,15,,,,,
+2,2026-10-23 17:30:00,Limbs,3600,Preacher Curl (Machine),1,25,10,,,,,
+2,2026-10-23 17:30:00,Limbs,3600,Leg Press,1,180,12,,,,,

@@ -1,0 +1,11 @@
+node_modules
+dist
+dist-*
+test-results
+playwright-report
+.env
+.env.*
+*.key
+secrets/
+*.csv
+.DS_Store
