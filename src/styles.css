@@ -162,8 +162,19 @@ button {
   width: 100%;
 }
 
+.btn:hover,
+.list-item:hover {
+  border-color: var(--muted);
+}
+
+.btn:active,
+.list-item:active,
+.check:active {
+  opacity: 0.75;
+}
+
 .btn.small {
-  min-height: 36px;
+  min-height: 40px;
   padding: 0 10px;
   font-size: 14px;
 }
@@ -185,6 +196,8 @@ button {
 }
 
 .list-item {
+  color: inherit;
+  text-decoration: none;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -283,7 +296,7 @@ label.field > span {
 
 .num::placeholder {
   color: var(--muted);
-  opacity: 0.7;
+  opacity: 0.9;
 }
 
 .check {
@@ -314,9 +327,9 @@ label.field > span {
   color: var(--accent);
 }
 
-.ex-head h3 button {
-  all: unset;
-  cursor: pointer;
+.ex-head h3 a {
+  color: inherit;
+  text-decoration: none;
 }
 
 .note {
@@ -391,7 +404,7 @@ label.field > span {
 }
 
 .timer button {
-  min-height: 36px;
+  min-height: 40px;
   min-width: 44px;
   border-radius: 999px;
   border: none;
@@ -424,6 +437,7 @@ label.field > span {
 }
 
 .modal {
+  overscroll-behavior: contain;
   background: var(--bg);
   width: 100%;
   max-width: 640px;
@@ -441,7 +455,7 @@ label.field > span {
 
 .chart text {
   fill: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .seg {
@@ -455,7 +469,7 @@ label.field > span {
   border: none;
   background: var(--card);
   padding: 6px 10px;
-  min-height: 36px;
+  min-height: 40px;
   font-size: 13px;
 }
 

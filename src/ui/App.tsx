@@ -37,6 +37,14 @@ function Page({ route }: { route: string }) {
 }
 
 function SyncBadge() {
+  return (
+    <span aria-live="polite">
+      <SyncText />
+    </span>
+  );
+}
+
+function SyncText() {
   const s = useSync();
   if (s.error) return <span className="status error">⚠︎ nicht gesendet ({s.pending})</span>;
   if (s.pending > 0) return <span className="status pending">{s.online ? '↻' : 'offline ·'} {s.pending} offen</span>;

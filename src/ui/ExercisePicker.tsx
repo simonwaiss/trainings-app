@@ -27,7 +27,9 @@ export function ExercisePicker(props: { title: string; onPick: (exerciseId: stri
         </div>
         <input
           className="text"
-          placeholder="Suchen oder neuen Namen eingeben"
+          type="search"
+          autoComplete="off"
+          placeholder="Suchen oder neuen Namen eingeben …"
           aria-label="Übung suchen"
           value={q}
           onChange={(e) => setQ(e.target.value)}

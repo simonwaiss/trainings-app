@@ -29,13 +29,13 @@ export function Exercises() {
           + Neu
         </button>
       </div>
-      <input className="text" placeholder="Suchen" aria-label="Übung suchen" value={q} onChange={(e) => setQ(e.target.value)} />
+      <input className="text" type="search" placeholder="Suchen …" aria-label="Übung suchen" autoComplete="off" value={q} onChange={(e) => setQ(e.target.value)} />
       {hits.map((e) => (
-        <button key={e.id} className="list-item" onClick={() => go(`/uebung/${e.id}`)}>
+        <a key={e.id} className="list-item" href={`#/uebung/${e.id}`}>
           <span className="grow">{e.name}</span>
           {e.unilateral && <span className="muted small">L/R</span>}
           <span aria-hidden>›</span>
-        </button>
+        </a>
       ))}
     </>
   );
@@ -140,8 +140,10 @@ export function ExerciseDetail({ id }: { id: string }) {
         <table className="plain">
           <tbody>
             {[...hist].reverse().slice(0, 40).map((h) => (
-              <tr key={h.workoutId} onClick={() => go(`/training/${h.workoutId}`)} style={{ cursor: 'pointer' }}>
-                <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(h.date)}</td>
+              <tr key={h.workoutId}>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  <a href={`#/training/${h.workoutId}`}>{fmtDate(h.date)}</a>
+                </td>
                 <td>
                   {h.sets
                     .filter((s) => s.kind !== 'warmup')

@@ -154,7 +154,7 @@ function ExerciseBlock(props: { we: WorkoutExercise; workout: Workout; first: bo
     <section className="card" aria-label={exercise.name}>
       <div className="ex-head">
         <h3>
-          <button onClick={() => go(`/uebung/${exercise.id}`)}>{exercise.name}</button>
+          <a href={`#/uebung/${exercise.id}`}>{exercise.name}</a>
         </h3>
         <button className="icon-btn" aria-label="Übung bearbeiten" onClick={() => setMenu(!menu)}>
           ⋯
@@ -242,7 +242,16 @@ function ExerciseBlock(props: { we: WorkoutExercise; workout: Workout; first: bo
         <button className="btn small grow" onClick={() => addSet(we.id)}>
           + Satz
         </button>
-        <button className="btn small" disabled={sets.length === 0} onClick={() => removeLastSet(we.id)} aria-label="Letzten Satz entfernen">
+        <button
+          className="btn small"
+          disabled={sets.length === 0}
+          aria-label="Letzten Satz entfernen"
+          onClick={async () => {
+            const last = sets.filter((s) => s.position === sets[sets.length - 1].position);
+            if (last.some((s) => s.weight_kg != null || s.reps != null) && !confirm('Letzten Satz mit Werten entfernen?')) return;
+            await removeLastSet(we.id);
+          }}
+        >
           − Satz
         </button>
       </div>

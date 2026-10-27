@@ -42,13 +42,24 @@ export function Login() {
       <form onSubmit={submit}>
         <label className="field">
           <span>E-Mail</span>
-          <input className="text" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input
+            className="text"
+            type="email"
+            name="email"
+            autoComplete="username"
+            spellCheck={false}
+            autoCapitalize="none"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
         </label>
         <label className="field">
           <span>Passwort{mode === 'setup' ? ' (mindestens 10 Zeichen)' : ''}</span>
           <input
             className="text"
             type="password"
+            name="password"
             autoComplete={mode === 'setup' ? 'new-password' : 'current-password'}
             required
             minLength={mode === 'setup' ? 10 : 1}
@@ -56,7 +67,11 @@ export function Login() {
             onChange={(e) => setPassword(e.target.value)}
           />
         </label>
-        {error && <div className="banner">{error}</div>}
+        {error && (
+          <div className="banner" role="alert">
+            {error}
+          </div>
+        )}
         <button className="btn primary block" disabled={busy} type="submit">
           {busy ? 'Einen Moment …' : mode === 'login' ? 'Anmelden' : 'Konto einrichten'}
         </button>

@@ -3,7 +3,7 @@ import { APP_VERSION } from '../config';
 import { db } from '../db/local';
 import { TABLES } from '../db/types';
 import { runSync, supabase, useSync } from '../sync/manager';
-import { fmtDate, fmtTime, go, NumInput, settings } from './util';
+import { fmtDate, fmtTime, NumInput, settings } from './util';
 
 export function More() {
   const sync = useSync();
@@ -66,10 +66,10 @@ export function More() {
         </label>
       </div>
 
-      <button className="list-item" onClick={() => go('/import')}>
+      <a className="list-item" href="#/import">
         <span className="grow">Strong-Daten importieren</span>
         <span aria-hidden>›</span>
-      </button>
+      </a>
       <button className="list-item" onClick={exportJson}>
         <span className="grow">Sicherung herunterladen (JSON)</span>
       </button>

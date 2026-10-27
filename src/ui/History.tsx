@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useState } from 'react';
 import { db } from '../db/local';
-import { fmtDate, fmtDuration, go } from './util';
+import { fmtDate, fmtDuration } from './util';
 
 export function History() {
   const [limit, setLimit] = useState(30);
@@ -28,7 +28,7 @@ export function History() {
       </div>
       {data.items.length === 0 && <p className="muted">Noch kein beendetes Training.</p>}
       {data.items.map(({ w, sets, volume }) => (
-        <button key={w.id} className="list-item" onClick={() => go(`/training/${w.id}`)}>
+        <a key={w.id} className="list-item" href={`#/training/${w.id}`}>
           <span className="grow">
             <strong>{w.name}</strong>
             <br />
@@ -39,7 +39,7 @@ export function History() {
             </span>
           </span>
           <span aria-hidden>›</span>
-        </button>
+        </a>
       ))}
       {data.total > limit && (
         <button className="btn block" onClick={() => setLimit(limit + 50)}>
