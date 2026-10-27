@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { APP_VERSION } from '../config';
-import { db } from '../db/local';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db, heldRows, retryHeld } from '../db/local';
 import { TABLES } from '../db/types';
 import { runSync, supabase, useSync } from '../sync/manager';
 import { fmtDate, fmtTime, NumInput, settings } from './util';
@@ -8,6 +9,7 @@ import { fmtDate, fmtTime, NumInput, settings } from './util';
 export function More() {
   const sync = useSync();
   const [rest, setRest] = useState(settings.restSeconds);
+  const held = useLiveQuery(() => heldRows(), [sync.held]);
 
   const exportJson = async () => {
     const data: Record<string, unknown[]> = {};
@@ -47,6 +49,16 @@ export function More() {
         <button className="btn small" disabled={sync.running} onClick={() => runSync()}>
           {sync.running ? 'Gleicht ab …' : 'Jetzt abgleichen'}
         </button>
+        {held && held.length > 0 && (
+          <div className="banner" role="alert">
+            <strong>{held.length} Einträge hat die Datenbank abgelehnt.</strong> Sie liegen sicher auf diesem Gerät, halten
+            aber den Rest nicht auf. Grund des ersten: {held[0].error ?? 'unbekannt'}
+            <br />
+            <button className="btn small" style={{ marginTop: 6 }} onClick={() => retryHeld()}>
+              Erneut senden
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="card">

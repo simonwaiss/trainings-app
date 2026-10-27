@@ -46,6 +46,7 @@ function SyncBadge() {
 
 function SyncText() {
   const s = useSync();
+  if (s.held > 0) return <a className="status error" href="#/mehr">⚠︎ {s.held} zurückgehalten</a>;
   if (s.error) return <span className="status error">⚠︎ nicht gesendet ({s.pending})</span>;
   if (s.pending > 0) return <span className="status pending">{s.online ? '↻' : 'offline ·'} {s.pending} offen</span>;
   if (!s.online) return <span className="status">offline · alles gespeichert</span>;
@@ -62,8 +63,10 @@ export function App() {
     updateServiceWorker,
   } = useRegisterSW();
 
-  if (!sync.authReady || owner === undefined) return null;
+  if (owner === undefined) return null;
   // Erstes Mal auf diesem Gerät: ohne Anmeldung gibt es nichts zu zeigen.
+  // Gibt es schon Daten auf dem Gerät, erscheint die App sofort, auch wenn die Anmeldung noch erneuert wird.
+  if (!owner && !sync.authReady) return null;
   if (!sync.session && !owner) {
     return (
       <div className="app">
@@ -87,7 +90,7 @@ export function App() {
       <div className="row" style={{ justifyContent: 'flex-end', minHeight: 20 }}>
         <SyncBadge />
       </div>
-      {!sync.session && (
+      {!sync.session && (sync.signedOut || (sync.authReady && sync.online)) && (
         <div className="banner">
           Abgemeldet. Alles bleibt auf dem Gerät gespeichert; zum Senden bitte anmelden.
           <Login />

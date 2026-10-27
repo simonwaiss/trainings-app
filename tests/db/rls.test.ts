@@ -88,6 +88,89 @@ describe('Zeilenrechte', () => {
   });
 });
 
+describe('Jede Tabelle und Ansicht ist abgesichert', () => {
+  it('RLS ist überall an, ohne Login kommt nichts', async () => {
+    const tables = await as<{ name: string; rls: boolean }>(
+      'postgres',
+      null,
+      `select c.relname as name, c.relrowsecurity as rls from pg_class c join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = 'public' and c.relkind = 'r'`,
+    );
+    expect(tables.length).toBeGreaterThanOrEqual(6);
+    for (const t of tables) {
+      expect(t.rls, t.name).toBe(true);
+      await expect(as('anon', null, `select * from public.${t.name}`), t.name).rejects.toThrow(/permission denied/);
+    }
+    const views = await as<{ name: string }>(
+      'postgres',
+      null,
+      `select c.relname as name from pg_class c join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = 'public' and c.relkind = 'v'`,
+    );
+    for (const v of views) {
+      await expect(as('anon', null, `select * from public.${v.name}`), v.name).rejects.toThrow(/permission denied/);
+    }
+  });
+
+  it('die App-Rolle hat keinen Zugang zum Schema intern', async () => {
+    const [r] = await as<{ ok: boolean }>('postgres', null, `select has_schema_privilege('authenticated', 'intern', 'USAGE') as ok`);
+    expect(r.ok).toBe(false);
+  });
+
+  it('die Grenzen der App passen zu den Regeln der Datenbank', async () => {
+    const { sanitize } = await import('../../src/db/limits');
+    const ex = sanitize('exercises', {
+      id: 'aaaaaaaa-0000-4000-8000-0000000000e1',
+      name: 'x'.repeat(500),
+      unilateral: false,
+      rest_seconds: 99999,
+      note: null,
+      created_at: new Date().toISOString(),
+      deleted_at: null,
+    });
+    const extremes = [
+      { weight_kg: 1e9, reps: 3e9, rpe: 50 },
+      { weight_kg: -20, reps: 7.5, rpe: -1 },
+      { weight_kg: 52.555, reps: 0, rpe: null },
+    ];
+    await as('authenticated', SIMON, `insert into public.exercises (id, name, rest_seconds) values ('${ex.id}', '${ex.name}', ${ex.rest_seconds})`);
+    await as('authenticated', SIMON, `insert into public.templates (id, name) values ('aaaaaaaa-0000-4000-8000-0000000000e2', 'T')`);
+    const link = sanitize('template_exercises', {
+      id: 'aaaaaaaa-0000-4000-8000-0000000000e3',
+      template_id: 'aaaaaaaa-0000-4000-8000-0000000000e2',
+      exercise_id: ex.id,
+      position: 0,
+      sets: 21,
+      note: null,
+      created_at: new Date().toISOString(),
+      deleted_at: null,
+    });
+    await as('authenticated', SIMON, `insert into public.template_exercises (id, template_id, exercise_id, position, sets)
+      values ('${link.id}', '${link.template_id}', '${link.exercise_id}', 0, ${link.sets})`);
+    await as('authenticated', SIMON, `insert into public.workouts (id, name, started_at) values ('aaaaaaaa-0000-4000-8000-0000000000e4', 'W', now())`);
+    await as('authenticated', SIMON, `insert into public.workout_exercises (id, workout_id, exercise_id, position) values ('aaaaaaaa-0000-4000-8000-0000000000e5', 'aaaaaaaa-0000-4000-8000-0000000000e4', '${ex.id}', 0)`);
+    for (const [i, v] of extremes.entries()) {
+      const s = sanitize('sets', {
+        id: `aaaaaaaa-0000-4000-8000-00000000010${i}`,
+        workout_id: 'aaaaaaaa-0000-4000-8000-0000000000e4',
+        workout_exercise_id: 'aaaaaaaa-0000-4000-8000-0000000000e5',
+        exercise_id: ex.id,
+        position: 1,
+        side: null,
+        kind: 'normal',
+        done_at: null,
+        note: null,
+        created_at: new Date().toISOString(),
+        deleted_at: null,
+        ...v,
+      });
+      await as('authenticated', SIMON, `insert into public.sets (id, workout_id, workout_exercise_id, exercise_id, position, weight_kg, reps, rpe)
+        values ('${s.id}', '${s.workout_id}', '${s.workout_exercise_id}', '${s.exercise_id}', ${s.position},
+                ${s.weight_kg ?? 'null'}, ${s.reps ?? 'null'}, ${s.rpe ?? 'null'})`);
+    }
+  });
+});
+
 describe('Nur Simon kommt rein', () => {
   it('lehnt jedes weitere Konto ab, auch mit erlaubter Adresse', async () => {
     await expect(

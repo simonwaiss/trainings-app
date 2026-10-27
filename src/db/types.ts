@@ -6,8 +6,10 @@ export interface Base {
   created_at: string;
   updated_at?: string; // setzt der Server
   deleted_at: string | null;
-  _dirty?: 0 | 1; // 1 = noch nicht beim Server
+  _dirty?: 0 | 1 | 2; // 1 = noch nicht beim Server, 2 = vom Server mehrfach abgelehnt, zurückgehalten
   _rev?: number; // lokaler Zähler, damit eine Änderung während des Sendens nicht verloren geht
+  _fails?: number; // wie oft der Server diese Zeile abgelehnt hat
+  _error?: string | null; // letzter Ablehnungsgrund
 }
 
 export interface Exercise extends Base {

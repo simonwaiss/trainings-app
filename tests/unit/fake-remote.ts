@@ -1,5 +1,5 @@
 import type { Base, TableName } from '../../src/db/types';
-import type { Remote } from '../../src/sync/sync';
+import { RejectedError, type Remote } from '../../src/sync/sync';
 
 // Nachbau des Servers im Speicher: setzt updated_at wie der Datenbank-Auslöser
 // und kann Ausfälle (kein Netz) vortäuschen.
@@ -8,6 +8,9 @@ export class FakeRemote implements Remote {
   offline = false;
   failAfterUpsert = false; // Server speichert, Antwort geht aber verloren
   upsertCalls = 0;
+  // Zeilen, die der „Server“ ablehnt (wie ein verletzter Check in der Datenbank). Ein Stapel mit einer
+  // solchen Zeile wird ganz abgelehnt, wie bei Postgres.
+  reject: (table: TableName, row: Record<string, unknown>) => boolean = () => false;
   private clock = Date.parse('2026-10-27T10:00:00Z');
 
   private tick() {
@@ -22,6 +25,7 @@ export class FakeRemote implements Remote {
   async upsert(table: TableName, rows: Record<string, unknown>[]) {
     if (this.offline) throw new TypeError('Failed to fetch');
     this.upsertCalls++;
+    if (rows.some((r) => this.reject(table, r))) throw new RejectedError(`${table}: violates check constraint`);
     const t = this.tables.get(table) ?? new Map();
     this.tables.set(table, t);
     for (const r of rows) {

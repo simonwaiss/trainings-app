@@ -25,6 +25,8 @@ function session() {
 export class MockSupabase {
   tables = new Map<string, Map<string, Record<string, unknown>>>();
   upserts = 0;
+  // Kein Netz: Jede Anfrage scheitert wie bei einem echten Funkloch.
+  offline = false;
   private clock = Date.now();
 
   rows(table: string) {
@@ -45,6 +47,7 @@ export class MockSupabase {
   }
 
   private async handle(route: Route) {
+    if (this.offline) return route.abort('internetdisconnected');
     const req = route.request();
     const url = new URL(req.url());
     if (req.method() === 'OPTIONS') return this.json(route, 200, undefined);
@@ -70,10 +73,16 @@ export class MockSupabase {
       return this.json(route, 201, undefined);
     }
 
-    // GET mit updated_at=gte.<zeit>, offset, limit
+    // GET mit updated_at=gte.<zeit>, Seiten nach Schlüssel (or=…), limit
     let rows = [...t.values()];
     const gte = url.searchParams.get('updated_at');
     if (gte?.startsWith('gte.')) rows = rows.filter((r) => (r.updated_at as string) >= gte.slice(4));
+    const or = url.searchParams.get('or')?.match(/updated_at\.gt\."(.+?)",and\(updated_at\.eq\."(.+?)",id\.gt\.(.+)\)\)$/);
+    if (or) {
+      rows = rows.filter(
+        (r) => (r.updated_at as string) > or[1] || ((r.updated_at as string) === or[2] && (r.id as string) > or[3]),
+      );
+    }
     rows.sort((a, b) => (a.updated_at as string).localeCompare(b.updated_at as string) || (a.id as string).localeCompare(b.id as string));
     const offset = Number(url.searchParams.get('offset') ?? 0);
     const limit = Number(url.searchParams.get('limit') ?? 1000);

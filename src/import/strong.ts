@@ -1,4 +1,5 @@
 import Papa from 'papaparse';
+import { LIMITS } from '../db/limits';
 import type { Exercise, SetKind, Workout, WorkoutExercise, WSet } from '../db/types';
 import { stableId } from '../lib/ids';
 
@@ -175,8 +176,9 @@ export function parseStrongCsv(csv: string): ParseResult {
       continue;
     }
     const wName = text(get(r, 'workoutName')) ?? 'Training';
-    const wNo = text(get(r, 'workoutNo'));
-    const key = `${wNo ? `${wNo}|` : ''}${get(r, 'date')!.trim()}|${wName}`;
+    // Schlüssel nur aus Datum (sekundengenau) und Name, nicht aus der laufenden Nummer von Strong:
+    // Die kann sich zwischen zwei Exporten verschieben.
+    const key = `${get(r, 'date')!.trim()}|${wName}`;
     let w = workouts.get(key);
     if (!w) {
       w = {
@@ -198,15 +200,26 @@ export function parseStrongCsv(csv: string): ParseResult {
     const unit = (text(get(r, 'weightUnit')) ?? weightUnitFromHeader ?? 'kg').toLowerCase();
     let weight = num(get(r, 'weight'));
     if (weight != null && unit.startsWith('lb')) weight = Math.round(weight * LB * 100) / 100;
+    let reps = num(get(r, 'reps'));
+    const notes = [text(get(r, 'notes'))];
+    // Werte, die die Datenbank nicht nimmt, wandern in die Notiz statt verloren zu gehen.
+    if (weight != null && (weight < 0 || weight > LIMITS.weightKg.max)) {
+      notes.push(`${String(weight).replace('.', ',')} kg${weight < 0 ? ' (Unterstützung)' : ''}`);
+      weight = null;
+    }
+    if (reps != null && (!Number.isInteger(reps) || reps < 0 || reps > LIMITS.reps.max)) {
+      notes.push(`${String(reps).replace('.', ',')} Wdh.`);
+      reps = reps >= 0 && reps <= LIMITS.reps.max ? Math.round(reps) : null;
+    }
     ex.sets.push({
       order,
       kind,
       weight_kg: weight,
-      reps: num(get(r, 'reps')),
+      reps,
       rpe: num(get(r, 'rpe')),
       seconds: num(get(r, 'seconds')),
       distance: num(get(r, 'distance')),
-      note: text(get(r, 'notes')),
+      note: notes.filter(Boolean).join(' · ') || null,
     });
     counts.set(exName, (counts.get(exName) ?? 0) + 1);
   }

@@ -9,3 +9,5 @@ playwright-report
 secrets/
 *.csv
 .DS_Store
+*.csv.*
+!tests/e2e/fixtures/*

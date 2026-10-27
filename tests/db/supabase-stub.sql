@@ -11,3 +11,7 @@ grant usage on schema auth to anon, authenticated, supabase_auth_admin;
 grant execute on function auth.uid() to anon, authenticated;
 grant usage on schema public to anon, authenticated;
 grant insert, select on auth.users to supabase_auth_admin;
+-- Wie bei Supabase: Neue Tabellen in public bekommen standardmäßig alle Rechte für anon und authenticated.
+-- So fällt auf, wenn eine Migration vergisst, sie wegzunehmen.
+alter default privileges in schema public grant all on tables to anon, authenticated;
+alter default privileges in schema public grant all on functions to anon, authenticated;

@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie';
+import { sanitize } from './limits';
 import type {
   Exercise,
   RowByTable,
@@ -60,7 +61,7 @@ export async function save<T extends TableName>(table: T, row: RowByTable[T]): P
   const t = db.tbl(table);
   const saved = await db.transaction('rw', t, async () => {
     const current = await t.get(row.id);
-    const next = { ...row, _dirty: 1 as const, _rev: (current?._rev ?? 0) + 1 };
+    const next = { ...sanitize(table, row), _dirty: 1 as const, _rev: (current?._rev ?? 0) + 1, _fails: 0, _error: null };
     await t.put(next);
     return next;
   });
@@ -74,7 +75,7 @@ export async function saveMany<T extends TableName>(table: T, rows: RowByTable[T
   await db.transaction('rw', t, async () => {
     const current = await t.bulkGet(rows.map((r) => r.id));
     await t.bulkPut(
-      rows.map((r, i) => ({ ...r, _dirty: 1 as const, _rev: (current[i]?._rev ?? 0) + 1 })),
+      rows.map((r, i) => ({ ...sanitize(table, r), _dirty: 1 as const, _rev: (current[i]?._rev ?? 0) + 1, _fails: 0, _error: null })),
     );
   });
   onChange?.();
@@ -89,7 +90,7 @@ export async function patch<T extends TableName>(
   await db.transaction('rw', t, async () => {
     const current = await t.get(id);
     if (!current) throw new Error(`${table}/${id} fehlt`);
-    await t.put({ ...current, ...changes, _dirty: 1, _rev: (current._rev ?? 0) + 1 });
+    await t.put({ ...sanitize(table, { ...current, ...changes }), _dirty: 1, _rev: (current._rev ?? 0) + 1, _fails: 0, _error: null });
   });
   onChange?.();
 }
@@ -107,10 +108,34 @@ export async function setMeta(key: string, value: unknown) {
   await db.meta.put({ key, value });
 }
 
-export async function pendingCount(): Promise<number> {
+const ALL: TableName[] = ['exercises', 'templates', 'template_exercises', 'workouts', 'workout_exercises', 'sets'];
+
+export async function pendingCount(state: 1 | 2 = 1): Promise<number> {
   let n = 0;
-  for (const name of ['exercises', 'templates', 'template_exercises', 'workouts', 'workout_exercises', 'sets'] as TableName[]) {
-    n += await db.tbl(name).where('_dirty').equals(1).count();
-  }
+  for (const name of ALL) n += await db.tbl(name).where('_dirty').equals(state).count();
   return n;
+}
+
+// Zurückgehaltene Zeilen (vom Server abgelehnt), zum Anzeigen unter „Mehr“.
+export async function heldRows() {
+  const out: { table: TableName; id: string; error: string | null }[] = [];
+  for (const name of ALL) {
+    for (const r of await db.tbl(name).where('_dirty').equals(2).toArray()) {
+      out.push({ table: name, id: r.id, error: r._error ?? null });
+    }
+  }
+  return out;
+}
+
+// Zurückgehaltene Zeilen noch einmal senden (nach einem Update der App oder der Datenbank).
+export async function retryHeld() {
+  for (const name of ALL) {
+    const t = db.tbl(name);
+    await db.transaction('rw', t, async () => {
+      for (const r of await t.where('_dirty').equals(2).toArray()) {
+        await t.put({ ...sanitize(name, r), _dirty: 1, _fails: 0, _error: null });
+      }
+    });
+  }
+  onChange?.();
 }

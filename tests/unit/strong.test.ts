@@ -96,6 +96,24 @@ describe('Strong-Import', () => {
     expect(prev.get('2|')).toEqual({ weight_kg: 55, reps: 9 });
   });
 
+  it('legt Trainings nicht doppelt an, wenn Strong die Nummern verschiebt', async () => {
+    const shifted = NEW_FORMAT.replace(/^1,/gm, '7,').replace(/^2,/gm, '8,');
+    const a = await buildImport(parseStrongCsv(NEW_FORMAT), {});
+    const b = await buildImport(parseStrongCsv(shifted), {});
+    expect(b.workouts.map((w) => w.id)).toEqual(a.workouts.map((w) => w.id));
+    expect(b.sets.map((s) => s.id)).toEqual(a.sets.map((s) => s.id));
+  });
+
+  it('übernimmt Werte, die die Datenbank nicht nimmt, in die Notiz', () => {
+    const csv = `Date,Workout Name,Exercise Name,Set Order,Weight,Reps
+2026-01-05 10:00:00,Rücken,Assisted Pull Up,1,-20,8
+2026-01-05 10:00:00,Rücken,Assisted Pull Up,2,-20,7.5
+`;
+    const [set1, set2] = parseStrongCsv(csv).workouts[0].exercises[0].sets;
+    expect(set1).toMatchObject({ weight_kg: null, reps: 8, note: '-20 kg (Unterstützung)' });
+    expect(set2).toMatchObject({ weight_kg: null, reps: 8, note: '-20 kg (Unterstützung) · 7,5 Wdh.' });
+  });
+
   it('legt unbekannte Übungen neu an', async () => {
     const parsed = parseStrongCsv(OLD_FORMAT);
     const rows = await buildImport(parsed, {});

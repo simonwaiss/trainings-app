@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useState } from 'react';
 import { addExerciseToTemplate, duplicateTemplate, moveTemplateExercise } from '../data/ops';
+import { LIMITS } from '../db/limits';
 import { db, patch, softDelete } from '../db/local';
 import { ExercisePicker } from './ExercisePicker';
 import { go } from './util';
@@ -63,6 +64,7 @@ export function TemplateEdit({ id }: { id: string }) {
             <button
               className="btn small"
               aria-label="Ein Satz mehr"
+              disabled={link.sets >= LIMITS.templateSets.max}
               onClick={() => patch('template_exercises', link.id, { sets: link.sets + 1 })}
             >
               +

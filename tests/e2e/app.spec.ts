@@ -73,6 +73,7 @@ test('ohne Netz: Sätze überstehen Neuladen und gehen danach genau einmal an de
   await expect(page.getByText('✓ gespeichert')).toBeVisible();
 
   await context.setOffline(true);
+  mock.offline = true;
   await logSet(page, 'Butterfly (Maschine)', '1', '60', '8');
   await logSet(page, 'Seitheben', '1', '7,5', '15');
   await expect(page.getByText(/offline · \d+ offen/)).toBeVisible();
@@ -83,6 +84,7 @@ test('ohne Netz: Sätze überstehen Neuladen und gehen danach genau einmal an de
   await expect(region(page, 'Seitheben').getByLabel('kg Satz 1', { exact: true })).toHaveValue('7,5');
   expect(mock.rows('sets').filter((s) => s.weight_kg === 60)).toHaveLength(0);
 
+  mock.offline = false;
   await context.setOffline(false);
   await expect(page.getByText('✓ gespeichert')).toBeVisible({ timeout: 20_000 });
   expect(mock.rows('sets').filter((s) => s.weight_kg === 60 && s.reps === 8)).toHaveLength(1);
@@ -143,5 +145,33 @@ test('Strong-Import: alte Trainings erscheinen im Verlauf und als Vorwerte', asy
   await expect(
     region(page, 'Butterfly (Maschine)').getByRole('button', { name: 'Vorwert für Satz 1 übernehmen' }),
   ).toHaveText('55 × 11');
+  await server.stop();
+});
+
+test('ohne Netz mit abgelaufener Anmeldung: die App erscheint sofort und meldet nicht „Abgemeldet“', async ({ page, context }) => {
+  const { mock, server } = await setup(page, context);
+  await swReady(page);
+  await page.getByRole('button', { name: 'Torso starten' }).click();
+  await logSet(page, 'Butterfly (Maschine)', '1', '40', '12');
+  await expect(page.getByText('✓ gespeichert')).toBeVisible();
+  // Anmeldung künstlich ablaufen lassen, dann im Funkloch neu öffnen.
+  await page.evaluate(() => {
+    for (const key of Object.keys(localStorage)) {
+      if (!key.endsWith('-auth-token')) continue;
+      const s = JSON.parse(localStorage.getItem(key)!);
+      s.expires_at = Math.floor(Date.now() / 1000) - 3600;
+      localStorage.setItem(key, JSON.stringify(s));
+    }
+  });
+  mock.offline = true;
+  await context.setOffline(true);
+  await page.reload();
+  await expect(region(page, 'Butterfly (Maschine)').getByLabel('kg Satz 1', { exact: true })).toHaveValue('40', { timeout: 3000 });
+  await logSet(page, 'Butterfly (Maschine)', '2', '40', '10');
+  await expect(page.getByText(/Abgemeldet/)).toHaveCount(0);
+  mock.offline = false;
+  await context.setOffline(false);
+  await expect(page.getByText('✓ gespeichert')).toBeVisible({ timeout: 30_000 });
+  expect(mock.rows('sets').filter((s) => s.weight_kg === 40 && s.reps === 10)).toHaveLength(1);
   await server.stop();
 });
