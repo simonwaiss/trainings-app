@@ -1,5 +1,4 @@
 import { expect, test } from '@playwright/test';
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { MockSupabase } from './mock-supabase';
 import { StaticServer } from './server';
