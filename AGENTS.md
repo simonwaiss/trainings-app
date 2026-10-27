@@ -27,7 +27,11 @@ Adresse: https://simonwaiss.github.io/trainings-app/. Anforderungen und Stand de
   GitHub-Lauf rollt nur nach grünen Tests auf GitHub Pages aus.
 - **Supabase:** Projekt `trainings-app` in Simons privater Organisation, Zugang über die Anbindung `supabase-privat`.
   Die Organisation `raban` und das Projekt `raban-frankfurt` nie anfassen; Johannes hat dort Zugriff.
-- Neue Tabellen bekommen dieselben Zeilenrechte wie die bestehenden (siehe Migration) und einen Test in `tests/db/`.
+- Neue Tabellen bekommen dieselben Zeilenrechte wie die bestehenden (siehe Migration); der Test in `tests/db/` prüft
+  jede Tabelle in `public` automatisch.
+- **Jede Grenze der Datenbank** (Check, Zahlentyp, Länge) steht auch in `src/db/limits.ts`; dort werden alle
+  Änderungen vor dem Speichern eingepasst. Lehnt der Server trotzdem eine Zeile ab, wird sie nach 3 Versuchen
+  zurückgehalten (`_dirty = 2`, sichtbar unter „Mehr“) und hält den Rest nicht auf.
 
 ## Git
 
