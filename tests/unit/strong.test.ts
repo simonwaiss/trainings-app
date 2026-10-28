@@ -25,6 +25,16 @@ const OLD_FORMAT = `Date;Workout Name;Exercise Name;Set Order;Weight;Weight Unit
 2025-03-01 09:15:00;Push;Plank;1;;;;;;;60;;;1h 5m
 `;
 
+// Deutscher Export (Strong auf Deutsch, Stand Oktober 2026): deutsche Spaltennamen, Zeilen „Ruhezeit“,
+// Übungsnamen mit Leerzeichen am Ende. Werte erfunden, Aufbau wie in Simons Export.
+const GERMAN_FORMAT = `Datum,Workout-Name,Dauer,Name der Übung,Reihenfolge festlegen,Gewicht,Wiederh.,Entfernung,Sekunden,Notizen,Workout-Notizen,RPE
+2026-10-26 17:05:00,"Torso B",2h,"Butterfly ",1,80.0,9.0,0,0.0,"","",
+2026-10-26 17:05:00,"Torso B",2h,"Butterfly ",Ruhezeit,0,0.0,0,120.0,,,
+2026-10-26 17:05:00,"Torso B",2h,"Butterfly ",2,80.0,8.0,0,0.0,"zäh",,
+2026-10-26 17:05:00,"Torso B",2h,"Seitheben (Machine ",1,65.0,9.0,0,0.0,,,
+2026-10-27 12:52:41,"Limbs A",1h 27min,"Triceps Single Schwer ",1,40.0,9.0,0,0.0,,"gut geschlafen",8
+`;
+
 let n = 0;
 beforeEach(() => useDatabase(new LocalDB(`strong-${++n}`)));
 
@@ -55,6 +65,63 @@ describe('Strong-Import', () => {
     const bench = r.workouts[0].exercises[0];
     expect(bench.sets[0].weight_kg).toBeCloseTo(61.23, 2);
     expect(r.workouts[0].exercises[1].sets[0].seconds).toBe(60);
+  });
+
+  it('liest den deutschen Export mit deutschen Spaltennamen', () => {
+    const r = parseStrongCsv(GERMAN_FORMAT);
+    expect(r.skippedRows).toBe(1);
+    expect(r.workouts.map((w) => [w.name, w.durationSec])).toEqual([
+      ['Torso B', 7200],
+      ['Limbs A', 5220],
+    ]);
+    const [butterfly, seitheben] = r.workouts[0].exercises;
+    expect(butterfly.name).toBe('Butterfly');
+    expect(butterfly.sets.map((s) => [s.weight_kg, s.reps, s.note])).toEqual([
+      [80, 9, null],
+      [80, 8, 'zäh'],
+    ]);
+    expect(seitheben.name).toBe('Seitheben (Machine');
+    expect(r.workouts[1].note).toBe('gut geschlafen');
+    expect(r.workouts[1].exercises[0].sets[0].rpe).toBe(8);
+  });
+
+  it('ordnet die Übungsnamen aus Simons Strong dem Plan zu, alte Varianten bleiben eigene Übungen', async () => {
+    await seedPlanIfEmpty();
+    const exercises = await db.exercises.toArray();
+    const expected: Record<string, string | undefined> = {
+      'Butterfly': 'Butterfly (Maschine)',
+      'Flys upper chest single': 'Kabel-Flys von unten nach oben',
+      'Seitheben (Machine': 'Seitheben',
+      'Iso-Lateral Row (Machine)': 'Enges Rudern, Maschine mit Brustpolster',
+      'T Bar Row': 'T-Bar-Rudern',
+      'Latzug breit Maschine': 'Latzug breit, Maschine',
+      'Reverse Fly (Machine)': 'Reverse Flys',
+      'Front Raise Single Kabel': 'Frontheben am Kabel',
+      'Außenrotatoren': 'Außenrotation',
+      'Unterarme Kabel': 'Unterarme am Kabel (einrollen und aufrollen)',
+      'Hyperextensions': 'Hyperextensions',
+      'Triceps Single Schwer': 'Trizepsdrücken am Kabel mit Manschette',
+      'Preacher Curls Single': 'Preacher Curls',
+      'Beinbeuger (sitzend)': 'Beinbeuger sitzend',
+      'Beinstrecker Single': 'Beinstrecker an der Maschine',
+      'Hip Adductor (Machine)': 'Adduktoren-Maschine',
+      'Hackenschmidt': 'Hackenschmidt (Hack Squat)',
+      'Cable Crunsch (schwer)': 'Cable Crunches am Latzug',
+      'Beinpresse Wadenheben': 'Wadenheben an der Beinpresse',
+      'Booty Builder': 'Booty Builder',
+      // Andere Geräte oder beidseitig: eigene Übung, damit der Kraftverlauf nicht springt.
+      'Beinstrecker': undefined,
+      'Cable Crunsch Stehend': undefined,
+      'Lat Pulldown - Wide Grip (Cable)': undefined,
+      'Wadenheben (stehend)': undefined,
+      'Beinbeuger (liegend)': undefined,
+      'Triceps Extension (Cable)': undefined,
+      'Triceps Pushdown (Cable - Straight Bar)': undefined,
+      'RDLs Glute': undefined,
+    };
+    const mapping = suggestMapping(Object.keys(expected), exercises);
+    const byId = (id?: string) => exercises.find((e) => e.id === id)?.name;
+    expect(Object.fromEntries(Object.keys(expected).map((k) => [k, byId(mapping[k])]))).toEqual(expected);
   });
 
   it('versteht die Dauer in mehreren Schreibweisen', () => {

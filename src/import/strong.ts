@@ -59,18 +59,18 @@ type Field =
 const ALIASES: Record<Field, string[]> = {
   workoutNo: ['workout #', 'workout number'],
   date: ['date', 'datum'],
-  workoutName: ['workout name', 'workout', 'trainingsname'],
+  workoutName: ['workout name', 'workout', 'trainingsname', 'workout-name'],
   duration: ['duration', 'workout duration', 'dauer'],
-  exercise: ['exercise name', 'exercise', 'übung', 'uebung'],
-  setOrder: ['set order', 'set', 'satz'],
+  exercise: ['exercise name', 'exercise', 'übung', 'uebung', 'name der übung'],
+  setOrder: ['set order', 'set', 'satz', 'reihenfolge festlegen'],
   weight: ['weight', 'gewicht'],
   weightUnit: ['weight unit', 'unit'],
-  reps: ['reps', 'wiederholungen', 'wdh'],
+  reps: ['reps', 'wiederholungen', 'wdh', 'wiederh.'],
   rpe: ['rpe'],
-  distance: ['distance', 'distanz'],
+  distance: ['distance', 'distanz', 'entfernung'],
   seconds: ['seconds', 'sekunden'],
   notes: ['notes', 'notizen'],
-  workoutNotes: ['workout notes'],
+  workoutNotes: ['workout notes', 'workout-notizen'],
 };
 
 function headerKey(h: string) {
@@ -322,17 +322,29 @@ export async function buildImport(
 
 // Vorschlag für die Zuordnung: gleicher Name (ohne Groß/Klein und Klammern) oder bekanntes Wortpaar.
 const HINTS: [RegExp, RegExp][] = [
+  // Namen aus Simons Strong (deutscher Export, Oktober 2026). Ältere Varianten an anderen Geräten
+  // (Beinstrecker beidbeinig, Cable Crunsch stehend, Latzug am Kabel, Trizeps mit Stange, RDLs) bleiben eigene Übungen.
+  [/^flys? upper chest/i, /kabel-flys/i],
+  [/^seitheben/i, /seitheben/i],
+  [/^latzug breit/i, /latzug breit/i],
+  [/^außenrotat/i, /außenrotation/i],
+  [/^unterarme/i, /unterarme/i],
+  [/^triceps single/i, /trizeps/i],
+  [/^beinbeuger \(?sitzend/i, /beinbeuger/i],
+  [/^beinstrecker single/i, /beinstrecker/i],
+  [/^cable crunsch \(schwer/i, /cable crunches/i],
+  [/^beinpresse wadenheben/i, /wadenheben/i],
   [/butterfly|pec deck|chest fly.*machine/i, /butterfly/i],
   [/cable.*(fly|crossover).*(low|up)|low.*cable.*fly/i, /kabel-flys/i],
   [/lateral raise/i, /seitheben/i],
   [/t[- ]?bar row/i, /t-bar/i],
-  [/lat pull ?down.*(wide|machine)|wide.*lat pull/i, /latzug/i],
+  [/lat pull ?down.*machine/i, /latzug/i],
   [/reverse fly|rear delt/i, /reverse flys/i],
   [/front raise/i, /frontheben/i],
   [/external rotation/i, /außenrotation/i],
   [/wrist curl|forearm/i, /unterarme/i],
   [/hyperextension|back extension/i, /hyperextension/i],
-  [/triceps.*(push ?down|extension).*cable|cable.*triceps/i, /trizeps/i],
+  [/(triceps|trizeps).*(cuff|manschette)/i, /trizeps/i],
   [/preacher curl/i, /preacher/i],
   [/(seated )?leg curl/i, /beinbeuger/i],
   [/leg extension/i, /beinstrecker/i],
@@ -340,7 +352,7 @@ const HINTS: [RegExp, RegExp][] = [
   [/hack squat/i, /hackenschmidt/i],
   [/cable crunch/i, /cable crunches/i],
   [/calf.*(leg press)|calf press/i, /wadenheben/i],
-  [/glute|booty|hip thrust.*machine/i, /booty/i],
+  [/booty|hip thrust.*machine/i, /booty/i],
   [/row.*(chest support|machine)|seated row/i, /enges rudern/i],
 ];
 
