@@ -2,10 +2,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Base, TableName } from '../db/types';
 import { RejectedError, type Remote } from './sync';
 
-// Fehler mit Postgres- oder PostgREST-Code heißen: Der Server hat geantwortet und abgelehnt.
-// Ohne Code war es das Netz (oder eine Zeitüberschreitung) und wird später wiederholt.
-function isRejection(error: { code?: string; message?: string }) {
-  return !!error.code && /^(2\d|42|PGRST)/.test(error.code);
+// Abgelehnt heißt: Der Server hat geantwortet und die Daten selbst für ungültig erklärt (HTTP 4xx, etwa eine
+// verletzte Regel). Abgelaufene Anmeldung (401/403), Überlastung (408/429), Serverfehler (5xx, etwa beim Aufwachen
+// eines schlafenden Projekts) und Netzfehler (Status 0) gehen nur vorbei und werden später einfach wiederholt.
+function isRejection(status: number) {
+  return status >= 400 && status < 500 && ![401, 403, 408, 429].includes(status);
 }
 
 // Holt Seite für Seite nach Schlüssel (updated_at, id), nicht nach Versatz: Ändert sich währenddessen
@@ -13,10 +14,10 @@ function isRejection(error: { code?: string; message?: string }) {
 export function supabaseRemote(client: SupabaseClient, pageSize = 1000): Remote {
   return {
     async upsert(table, rows) {
-      const { error } = await client.from(table).upsert(rows, { onConflict: 'id' });
+      const { error, status } = await client.from(table).upsert(rows, { onConflict: 'id' });
       if (error) {
         const msg = `${table}: ${error.message}`;
-        throw isRejection(error) ? new RejectedError(msg) : new Error(msg);
+        throw isRejection(status) ? new RejectedError(msg) : new Error(msg);
       }
     },
     async pullSince(table: TableName, since) {

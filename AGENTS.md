@@ -24,7 +24,10 @@ Adresse: https://simonwaiss.github.io/trainings-app/. Anforderungen und Stand de
 - **Nichts Geheimes ins Repo:** nur Projekt-Adresse und öffentlicher Schlüssel (`src/config.ts`). Keine Mail-Adressen,
   keine Strong-Exporte (`*.csv` ist ausgeschlossen), keine Sicherungen.
 - **Erst grüne Tests, dann ausrollen.** `npm run pruefen` (Bauen, Vitest inkl. Zeilenrechte-Test, Playwright). Der
-  GitHub-Lauf rollt nur nach grünen Tests auf GitHub Pages aus.
+  GitHub-Lauf rollt nur nach grünen Tests auf GitHub Pages aus. Bei Änderungen am Abgleich oder an der Oberfläche
+  zusätzlich: `PW_BROWSER=webkit npx playwright test` (Safari-Engine wie auf dem iPhone),
+  `FUZZ_RUNS=200 npx vitest run tests/unit/sync-fuzz.test.ts` (zwei Geräte, schlechtes Netz, einige Minuten) und mit
+  einem echten Strong-Export `STRONG_CSV=<pfad> npx playwright test stress` (Datei nie ins Repo).
 - **Supabase:** Projekt `trainings-app` in Simons privater Organisation, Zugang über die Anbindung `supabase-privat`.
   Die Organisation `raban` und das Projekt `raban-frankfurt` nie anfassen; Johannes hat dort Zugriff.
 - Neue Tabellen bekommen dieselben Zeilenrechte wie die bestehenden (siehe Migration); der Test in `tests/db/` prüft

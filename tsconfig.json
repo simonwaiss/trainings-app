@@ -12,7 +12,8 @@
     "isolatedModules": true,
     "resolveJsonModule": true,
     "types": ["vite/client", "vite-plugin-pwa/client", "node"],
-    "noEmit": true
+    "noEmit": true,
+    "allowImportingTsExtensions": true
   },
   "include": ["src", "tests", "vite.config.ts", "playwright.config.ts"],
   "exclude": ["supabase/functions"]

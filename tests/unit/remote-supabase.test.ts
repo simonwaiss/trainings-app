@@ -6,7 +6,7 @@ import { RejectedError } from '../../src/sync/sync';
 type Row = { id: string; updated_at: string; weight_kg?: number | string };
 
 // Nachbau des Abfrage-Bausteins von supabase-js, nur so weit, wie remote-supabase ihn nutzt.
-function fakeClient(rows: Row[], onPage?: (page: number) => void, upsertError?: { code?: string; message: string }) {
+function fakeClient(rows: Row[], onPage?: (page: number) => void, upsertError?: { code?: string; message: string; status: number }) {
   let page = 0;
   return {
     from: () => {
@@ -30,7 +30,7 @@ function fakeClient(rows: Row[], onPage?: (page: number) => void, upsertError?: 
           const sorted = list.sort((a, b) => a.updated_at.localeCompare(b.updated_at) || a.id.localeCompare(b.id));
           resolve({ data: sorted.slice(0, limit), error: null });
         },
-        upsert: async () => ({ error: upsertError ?? null }),
+        upsert: async () => ({ error: upsertError ?? null, status: upsertError?.status ?? 201 }),
       };
       return q;
     },
@@ -64,11 +64,27 @@ describe('Holen vom Server', () => {
 });
 
 describe('Senden an den Server', () => {
-  it('unterscheidet Ablehnung durch die Datenbank von Netzfehlern', async () => {
-    const rejected = supabaseRemote(fakeClient([], undefined, { code: '23514', message: 'violates check constraint' }));
-    await expect(rejected.upsert('sets', [{}])).rejects.toBeInstanceOf(RejectedError);
-    const network = supabaseRemote(fakeClient([], undefined, { message: 'TypeError: Failed to fetch' }));
-    const err = await network.upsert('sets', [{}]).catch((e) => e);
-    expect(err).not.toBeInstanceOf(RejectedError);
+  it('unterscheidet Ablehnung durch die Datenbank von Netz-, Anmelde- und Serverfehlern', async () => {
+    const upsert = (e: { code?: string; message: string; status: number }) =>
+      supabaseRemote(fakeClient([], undefined, e)).upsert('sets', [{}]).catch((err) => err);
+    // Echte Ablehnungen: Die Zeile wird nach mehreren Versuchen zurückgehalten.
+    expect(await upsert({ code: '23514', message: 'violates check constraint', status: 400 })).toBeInstanceOf(RejectedError);
+    expect(await upsert({ code: '23505', message: 'duplicate key', status: 409 })).toBeInstanceOf(RejectedError);
+    expect(await upsert({ code: 'PGRST204', message: 'column not found', status: 400 })).toBeInstanceOf(RejectedError);
+    // Nur vorübergehend: wird später wiederholt, nie zurückgehalten.
+    for (const e of [
+      { message: 'TypeError: Failed to fetch', status: 0 },
+      { code: '20', message: 'AbortError', status: 0 },
+      { code: 'PGRST301', message: 'JWT expired', status: 401 },
+      { code: '42501', message: 'permission denied for table sets', status: 401 },
+      { code: '42501', message: 'permission denied', status: 403 },
+      { code: 'PGRST002', message: 'Could not query the database for the schema cache. Retrying.', status: 503 },
+      { message: 'Bad gateway', status: 502 },
+      { message: 'Too many requests', status: 429 },
+    ]) {
+      const err = await upsert(e);
+      expect(err, e.message).toBeInstanceOf(Error);
+      expect(err, e.message).not.toBeInstanceOf(RejectedError);
+    }
   });
 });

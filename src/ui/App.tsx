@@ -47,9 +47,10 @@ function SyncBadge() {
 function SyncText() {
   const s = useSync();
   if (s.held > 0) return <a className="status error" href="#/mehr">⚠︎ {s.held} zurückgehalten</a>;
-  if (s.error) return <span className="status error">⚠︎ nicht gesendet ({s.pending})</span>;
-  if (s.pending > 0) return <span className="status pending">{s.online ? '↻' : 'offline ·'} {s.pending} offen</span>;
+  // Netz- und Serverfehler gehen vorbei; die App versucht es von selbst wieder. Darum hier kein Rot.
+  if (s.pending > 0) return <span className="status pending">{!s.online ? 'offline ·' : s.error ? '⏸' : '↻'} {s.pending} offen</span>;
   if (!s.online) return <span className="status">offline · alles gespeichert</span>;
+  if (s.error) return <span className="status">alles gespeichert · Server gerade nicht erreichbar</span>;
   return <span className="status">✓ gespeichert</span>;
 }
 
