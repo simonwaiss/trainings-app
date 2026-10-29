@@ -1,5 +1,5 @@
 import { db, nowIso, patch, save, saveMany, softDelete } from '../db/local';
-import type { Exercise, Side, Template, TemplateExercise, Workout, WorkoutExercise, WSet } from '../db/types';
+import type { Exercise, SetKind, Side, Template, TemplateExercise, Workout, WorkoutExercise, WSet } from '../db/types';
 import { newId, stableId } from '../lib/ids';
 import { PLAN } from './plan';
 
@@ -170,6 +170,46 @@ export async function removeLastSet(weId: string) {
   for (const s of sets.filter((x) => x.position === last)) await softDelete('sets', s.id);
 }
 
+// Entfernt einen Satz (bei einarmigen Übungen beide Seiten); die Sätze dahinter rücken nach.
+export async function removeSet(weId: string, position: number) {
+  const sets = (await db.sets.where('workout_exercise_id').equals(weId).toArray()).filter(alive);
+  for (const s of sets) {
+    if (s.position === position) await softDelete('sets', s.id);
+    else if (s.position > position) await patch('sets', s.id, { position: s.position - 1 });
+  }
+}
+
+// Der Satz-Typ gilt für die ganze Satznummer, bei einarmigen Übungen also für beide Seiten.
+export async function setKind(weId: string, position: number, kind: SetKind) {
+  const sets = (await db.sets.where('workout_exercise_id').equals(weId).toArray()).filter(alive);
+  for (const s of sets.filter((x) => x.position === position && x.kind !== kind)) await patch('sets', s.id, { kind });
+}
+
+// Satznummer → Nummer des Arbeitssatzes (Aufwärmsätze zählen nicht mit), so wie die Vorwerte zählen.
+export function workRanks(sets: WSet[]): Map<number, number> {
+  const positions = [...new Set(sets.filter((s) => s.kind !== 'warmup').map((s) => s.position))].sort((a, b) => a - b);
+  return new Map(positions.map((p, i) => [p, i + 1]));
+}
+
+// Tauscht die Übung (etwa wenn die Maschine besetzt ist). Passen die Seiten (einarmig/beidarmig)
+// nicht zusammen, entstehen gleich viele leere Sätze neu; die alten werden nur als gelöscht markiert.
+export async function replaceWorkoutExercise(weId: string, exerciseId: string) {
+  const we = await db.workout_exercises.get(weId);
+  const ex = await db.exercises.get(exerciseId);
+  if (!we || !ex || we.exercise_id === exerciseId) return;
+  const old = await db.exercises.get(we.exercise_id);
+  const sets = (await db.sets.where('workout_exercise_id').equals(weId).toArray()).filter(alive);
+  // Der Hinweis aus dem Trainingstag gehört zur alten Übung.
+  await patch('workout_exercises', weId, { exercise_id: exerciseId, note: null });
+  if (!!old?.unilateral === ex.unilateral) {
+    for (const s of sets) await patch('sets', s.id, { exercise_id: exerciseId });
+    return;
+  }
+  const count = new Set(sets.map((s) => s.position)).size || 1;
+  for (const s of sets) await softDelete('sets', s.id);
+  await saveMany('sets', emptySets({ ...we, exercise_id: exerciseId }, ex, count, nowIso()));
+}
+
 export async function updateSet(id: string, changes: Partial<WSet>) {
   await patch('sets', id, changes);
 }
@@ -205,6 +245,138 @@ export async function finishWorkout(workoutId: string) {
 
 export async function deleteWorkout(workoutId: string) {
   await softDelete('workouts', workoutId);
+}
+
+// ---------- Trainingstag nach dem Beenden anpassen ----------
+
+// Eine Übung, wie sie im beendeten Training vorkam. Gezählt werden Arbeitssätze (Satznummern ohne
+// Aufwärmsätze); Aufwärmsätze gehören nur zum Training. Übungen ganz ohne Sätze zählen als weggelassen.
+interface Slot {
+  exerciseId: string;
+  sets: number;
+  note: string | null;
+}
+
+async function workoutSlots(workoutId: string): Promise<Slot[]> {
+  const wes = (await db.workout_exercises.where('workout_id').equals(workoutId).toArray())
+    .filter(alive)
+    .sort((a, b) => a.position - b.position);
+  const out: Slot[] = [];
+  for (const we of wes) {
+    const sets = (await db.sets.where('workout_exercise_id').equals(we.id).toArray()).filter(alive);
+    const count = workRanks(sets).size;
+    if (count > 0) out.push({ exerciseId: we.exercise_id, sets: count, note: we.note });
+  }
+  return out;
+}
+
+// Ordnet Übungen des Trainingstags denen des Trainings zu: das k-te Vorkommen einer Übung zum k-ten
+// (Reverse Flys stehen zweimal im Plan).
+function matchSlots(links: TemplateExercise[], slots: Slot[]) {
+  const pairs: { link: TemplateExercise; slot: Slot; at: number }[] = [];
+  const used = new Set<number>();
+  const removed: TemplateExercise[] = [];
+  for (const link of links) {
+    const at = slots.findIndex((s, i) => !used.has(i) && s.exerciseId === link.exercise_id);
+    if (at < 0) removed.push(link);
+    else {
+      used.add(at);
+      pairs.push({ link, slot: slots[at], at });
+    }
+  }
+  const added = slots.map((slot, at) => ({ slot, at })).filter(({ at }) => !used.has(at));
+  return { pairs, removed, added };
+}
+
+const saetze = (n: number) => (n === 1 ? '1 Satz' : `${n} Sätze`);
+
+export interface TemplateChange {
+  template: Template | null; // null: freies Training oder der Trainingstag ist inzwischen gelöscht
+  lines: string[];
+  removes: boolean; // fällt im Trainingstag etwas weg?
+}
+
+// Was sich gegenüber dem Trainingstag geändert hat; null, wenn es nichts zu fragen gibt.
+export async function templateChanges(workoutId: string): Promise<TemplateChange | null> {
+  const workout = await db.workouts.get(workoutId);
+  if (!workout) return null;
+  const slots = await workoutSlots(workoutId);
+  const template = workout.template_id ? await db.templates.get(workout.template_id) : undefined;
+  if (!template || template.deleted_at) return slots.length ? { template: null, lines: [], removes: false } : null;
+
+  const links = (await db.template_exercises.where('template_id').equals(template.id).toArray())
+    .filter(alive)
+    .sort((a, b) => a.position - b.position);
+  const { pairs, removed, added } = matchSlots(links, slots);
+  const ids = [...new Set([...links.map((l) => l.exercise_id), ...slots.map((s) => s.exerciseId)])];
+  const names = new Map((await db.exercises.bulkGet(ids)).filter((e): e is Exercise => !!e).map((e) => [e.id, e.name]));
+  const name = (id: string) => names.get(id) ?? 'Übung';
+
+  const lines: string[] = [];
+  for (const { link, slot } of pairs) {
+    if (slot.sets !== link.sets) lines.push(`${name(link.exercise_id)}: ${link.sets} → ${saetze(slot.sets)}`);
+  }
+  for (const { slot } of added) lines.push(`${name(slot.exerciseId)} neu (${saetze(slot.sets)})`);
+  // Weggelassenes in einer Zeile, sonst wird die Liste nach einem kurzen Training sehr lang.
+  // Trenner „·“, weil manche Übungsnamen selbst ein Komma enthalten.
+  if (removed.length) lines.push(`Weggelassen: ${removed.map((l) => name(l.exercise_id)).join(' · ')}`);
+  if (pairs.some((p, i) => i > 0 && p.at < pairs[i - 1].at)) lines.push('Reihenfolge geändert');
+
+  if (lines.length === 0) return null;
+  return { template, lines, removes: removed.length > 0 || pairs.some((p) => p.slot.sets < p.link.sets) };
+}
+
+// „Trainingstag ändern“: Der Trainingstag sieht danach aus wie das Training (Übungen, Reihenfolge,
+// Satzzahl). Hinweise bleiben an ihrer Übung; Weggelassenes wird nur als gelöscht markiert.
+export async function applyWorkoutToTemplate(workoutId: string) {
+  const workout = await db.workouts.get(workoutId);
+  if (!workout?.template_id) return;
+  const templateId = workout.template_id;
+  const slots = await workoutSlots(workoutId);
+  const links = (await db.template_exercises.where('template_id').equals(templateId).toArray())
+    .filter(alive)
+    .sort((a, b) => a.position - b.position);
+  const { pairs, removed } = matchSlots(links, slots);
+  for (const [position, slot] of slots.entries()) {
+    const link = pairs.find((p) => p.slot === slot)?.link;
+    if (!link) {
+      await save('template_exercises', {
+        id: newId(),
+        template_id: templateId,
+        exercise_id: slot.exerciseId,
+        position,
+        sets: slot.sets,
+        note: null,
+        created_at: nowIso(),
+        deleted_at: null,
+      });
+    } else if (link.sets !== slot.sets || link.position !== position) {
+      await patch('template_exercises', link.id, { sets: slot.sets, position });
+    }
+  }
+  for (const link of removed) await softDelete('template_exercises', link.id);
+}
+
+// „Als neuen Trainingstag speichern“: neuer Trainingstag aus dem Training; das Training gehört danach zu ihm.
+export async function saveWorkoutAsTemplate(workoutId: string, name: string): Promise<string> {
+  const id = await createTemplate(name);
+  const slots = await workoutSlots(workoutId);
+  const created = nowIso();
+  await saveMany(
+    'template_exercises',
+    slots.map((slot, position) => ({
+      id: newId(),
+      template_id: id,
+      exercise_id: slot.exerciseId,
+      position,
+      sets: slot.sets,
+      note: slot.note,
+      created_at: created,
+      deleted_at: null,
+    })),
+  );
+  await patch('workouts', workoutId, { template_id: id, name: name.trim() });
+  return id;
 }
 
 // ---------- Auswertung ----------
@@ -261,6 +433,81 @@ export function e1rm(weight: number | null, reps: number | null): number | null 
   if (weight == null || reps == null || reps <= 0 || weight <= 0) return null;
   if (reps === 1) return weight;
   return Math.round(weight * (1 + reps / 30) * 10) / 10;
+}
+
+// Sätze einer Übung in diesem Training, die beim Eintragen einen neuen Bestwert (geschätztes Maximum)
+// setzen. Verglichen wird mit allen früheren Trainings und den Sätzen davor; ohne frühere Werte gibt es
+// keinen Rekord, sonst wäre jede neue Übung einer.
+export async function recordSetIds(workout: Workout, exerciseId: string): Promise<Set<string>> {
+  const all = (await db.sets.where('exercise_id').equals(exerciseId).toArray()).filter(
+    (s) => alive(s) && s.kind !== 'warmup' && s.weight_kg != null && s.reps != null,
+  );
+  const own = all.filter((s) => s.workout_id === workout.id);
+  const otherIds = [...new Set(all.filter((s) => s.workout_id !== workout.id).map((s) => s.workout_id))];
+  const earlier = new Set(
+    (await db.workouts.bulkGet(otherIds))
+      .filter((w): w is Workout => !!w && alive(w) && w.started_at < workout.started_at)
+      .map((w) => w.id),
+  );
+  let top: number | null = null;
+  for (const s of all) {
+    if (!earlier.has(s.workout_id)) continue;
+    const e = e1rm(s.weight_kg, s.reps);
+    if (e != null && (top == null || e > top)) top = e;
+  }
+  const out = new Set<string>();
+  if (top == null || own.length === 0) return out;
+  const wePos = new Map(
+    (await db.workout_exercises.bulkGet([...new Set(own.map((s) => s.workout_exercise_id))]))
+      .filter((w): w is WorkoutExercise => !!w)
+      .map((w) => [w.id, w.position]),
+  );
+  own.sort(
+    (a, b) =>
+      (wePos.get(a.workout_exercise_id) ?? 0) - (wePos.get(b.workout_exercise_id) ?? 0) ||
+      a.position - b.position ||
+      (a.side ?? '').localeCompare(b.side ?? ''),
+  );
+  for (const s of own) {
+    const e = e1rm(s.weight_kg, s.reps);
+    if (e != null && e > top) {
+      out.add(s.id);
+      top = e;
+    }
+  }
+  return out;
+}
+
+export interface WorkoutSummary {
+  sets: number;
+  volume: number;
+  records: { exercise: string; weight_kg: number; reps: number }[];
+}
+
+// Zusammenfassung eines Trainings: Arbeitssätze mit Werten, bewegtes Gewicht, neue Rekorde.
+export async function workoutSummary(workoutId: string): Promise<WorkoutSummary | null> {
+  const workout = await db.workouts.get(workoutId);
+  if (!workout) return null;
+  const sets = (await db.sets.where('workout_id').equals(workoutId).toArray()).filter(
+    (s) => alive(s) && s.kind !== 'warmup' && (s.weight_kg != null || s.reps != null),
+  );
+  const wes = (await db.workout_exercises.where('workout_id').equals(workoutId).toArray())
+    .filter(alive)
+    .sort((a, b) => a.position - b.position);
+  const records: WorkoutSummary['records'] = [];
+  for (const exerciseId of new Set(wes.map((w) => w.exercise_id))) {
+    const ids = await recordSetIds(workout, exerciseId);
+    const best = sets.filter((s) => ids.has(s.id)).sort((a, b) => (e1rm(b.weight_kg, b.reps) ?? 0) - (e1rm(a.weight_kg, a.reps) ?? 0))[0];
+    if (best) {
+      const ex = await db.exercises.get(exerciseId);
+      records.push({ exercise: ex?.name ?? 'Übung', weight_kg: best.weight_kg!, reps: best.reps! });
+    }
+  }
+  return {
+    sets: sets.length,
+    volume: sets.reduce((v, s) => v + (s.weight_kg ?? 0) * (s.reps ?? 0), 0),
+    records,
+  };
 }
 
 export interface HistoryPoint {

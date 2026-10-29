@@ -10,7 +10,10 @@ Adresse: https://simonwaiss.github.io/trainings-app/. Anforderungen und Stand de
   Zeile mit `_dirty = 1` und stößt den Abgleich an.
 - `src/sync/`: Abgleich mit Supabase. Senden per upsert über die id (keine Doppelten), Holen über `updated_at`, das der
   Server setzt. Ungesendete lokale Änderungen gewinnen.
-- `src/data/ops.ts`: Training starten/beenden, Vorwerte, Kraftverlauf, Vorbelegung aus `src/data/plan.ts`.
+- `src/data/ops.ts`: Training starten/beenden, Vorwerte, Kraftverlauf, Vorbelegung aus `src/data/plan.ts`. Beim
+  Beenden vergleicht `templateChanges` das Training mit seinem Trainingstag (Übungen, Reihenfolge, Zahl der
+  Arbeitssätze; Aufwärmsätze gehören nur zum Training) und fragt, ob die Änderung nur heute gilt; Gewichte merkt
+  sich ein Trainingstag nie, Vorwerte kommen immer aus dem letzten Training. Rekorde: `recordSetIds`.
 - `src/import/strong.ts`: Strong-CSV lesen und in Zeilen mit festen ids umwandeln.
 - `supabase/migrations/`: Datenbank-Schema samt Zeilenrechten (RLS). `supabase/functions/konto-einrichten`: legt einmalig
   Simons Konto an.

@@ -175,3 +175,151 @@ test('ohne Netz mit abgelaufener Anmeldung: die App erscheint sofort und meldet 
   expect(mock.rows('sets').filter((s) => s.weight_kg === 40 && s.reps === 10)).toHaveLength(1);
   await server.stop();
 });
+
+// Wischt eine Satzzeile nach links, wie mit dem Finger.
+async function swipeLeft(page: Page, input: ReturnType<Page['getByLabel']>) {
+  const row = input.locator('xpath=ancestor::tr');
+  await row.scrollIntoViewIfNeeded();
+  const box = (await row.boundingBox())!;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + box.width - 30, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 160, y, { steps: 8 });
+  await page.mouse.up();
+}
+
+const finish = async (page: Page) => {
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: 'Beenden', exact: true }).click();
+};
+
+test('Satz wegwischen, beim Beenden „Torso ändern“: das nächste Torso hat den Satz nicht mehr', async ({ page, context }) => {
+  const { mock, server, url } = await setup(page, context);
+  await page.getByRole('button', { name: 'Torso starten' }).click();
+  const seit = region(page, 'Seitheben');
+  await logSet(page, 'Seitheben', '1', '10', '15');
+  await swipeLeft(page, seit.getByLabel('kg Satz 2', { exact: true }));
+  // Wischen allein löscht nichts und hakt nichts ab; erst „Entfernen“ entfernt den Satz.
+  await expect(seit.getByText('Satz 2 entfernen?')).toBeVisible();
+  await expect(seit.getByRole('button', { name: 'Satz 2 erledigt', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  await seit.getByRole('button', { name: 'Entfernen', exact: true }).click();
+  await expect(seit.getByLabel('kg Satz 3', { exact: true })).toHaveCount(0);
+  await logSet(page, 'Seitheben', '2', '10', '14');
+  await logSet(page, 'Butterfly (Maschine)', '1', '50', '10');
+  await logSet(page, 'Butterfly (Maschine)', '2', '50', '9');
+
+  await finish(page);
+  const dlg = page.getByRole('dialog', { name: 'Torso geändert' });
+  await expect(dlg.getByText('Seitheben: 3 → 2 Sätze')).toBeVisible();
+  await expect(dlg.getByText(/^Weggelassen: Kabel-Flys von unten nach oben · Enges Rudern/)).toBeVisible();
+  await expect(dlg.getByRole('button').first()).toHaveText('Nur dieses Training');
+  await dlg.getByRole('button', { name: 'Torso ändern' }).click();
+  await expect(dlg).toHaveCount(0);
+  await expect(page.getByText('✓ gespeichert')).toBeVisible();
+
+  const torso = mock.rows('templates').find((t) => t.name === 'Torso')!;
+  const links = mock.rows('template_exercises').filter((l) => l.template_id === torso.id && !l.deleted_at);
+  expect(links.map((l) => l.sets)).toEqual([2, 2]);
+
+  await page.goto(url);
+  await page.getByRole('button', { name: 'Torso starten' }).click();
+  await expect(region(page, 'Seitheben').getByLabel('kg Satz 2', { exact: true })).toBeVisible();
+  await expect(region(page, 'Seitheben').getByLabel('kg Satz 3', { exact: true })).toHaveCount(0);
+  await expect(region(page, 'Kabel-Flys von unten nach oben')).toHaveCount(0);
+  await server.stop();
+});
+
+test('„Nur dieses Training“ lässt den Trainingstag, ein freies Training wird ein neuer Trainingstag', async ({ page, context }) => {
+  const { mock, server, url } = await setup(page, context);
+  await page.getByRole('button', { name: 'Torso starten' }).click();
+  await logSet(page, 'Butterfly (Maschine)', '1', '50', '10');
+  await finish(page);
+  await page.getByRole('dialog', { name: 'Torso geändert' }).getByRole('button', { name: 'Nur dieses Training' }).click();
+  await expect(page.getByText('✓ gespeichert')).toBeVisible();
+  const torso = mock.rows('templates').find((t) => t.name === 'Torso')!;
+  expect(mock.rows('template_exercises').filter((l) => l.template_id === torso.id && !l.deleted_at)).toHaveLength(12);
+
+  await page.goto(url);
+  await page.getByRole('button', { name: 'Freies Training' }).click();
+  await page.getByRole('button', { name: '+ Übung hinzufügen' }).click();
+  await page.getByLabel('Übung suchen').fill('Dips');
+  await page.getByRole('button', { name: '„Dips“ anlegen' }).click();
+  await logSet(page, 'Dips', '1', '0', '12');
+  await finish(page);
+  const dlg = page.getByRole('dialog', { name: 'Als Trainingstag speichern?' });
+  await dlg.getByLabel('Name des Trainingstags').fill('Pump');
+  await dlg.getByRole('button', { name: 'Speichern' }).click();
+  await expect(page.getByRole('heading', { name: 'Pump', exact: true })).toBeVisible();
+  await page.goto(url);
+  await expect(page.getByRole('button', { name: 'Pump starten' })).toBeVisible();
+  await server.stop();
+});
+
+test('dauerhafte Notiz, Aufwärmsatz, Rekord, Übung tauschen und Zusammenfassung', async ({ page, context }) => {
+  const { server, url } = await setup(page, context);
+  await page.getByRole('button', { name: 'Torso starten' }).click();
+  const bf = region(page, 'Butterfly (Maschine)');
+  await bf.getByRole('button', { name: 'Übung bearbeiten' }).click();
+  await bf.getByRole('button', { name: 'Notiz', exact: true }).click();
+  const note = bf.getByLabel('Dauerhafte Notiz zu Butterfly (Maschine)');
+  await note.fill('Sitz auf Stufe 4');
+  await note.blur();
+  await expect(bf.getByRole('button', { name: 'Dauerhafte Notiz: Sitz auf Stufe 4' })).toBeVisible();
+  await logSet(page, 'Butterfly (Maschine)', '1', '50', '10');
+  await expect(bf.getByRole('img', { name: 'neuer Rekord' })).toHaveCount(0); // erstes Mal: kein Rekord
+  await finish(page);
+  await page.getByRole('dialog', { name: 'Torso geändert' }).getByRole('button', { name: 'Nur dieses Training' }).click();
+  const sum = page.getByRole('region', { name: 'Zusammenfassung' });
+  await expect(sum).toContainText('500 kg');
+
+  await page.goto(url);
+  await page.getByRole('button', { name: 'Torso starten' }).click();
+  const bf2 = region(page, 'Butterfly (Maschine)');
+  await expect(bf2.getByRole('button', { name: 'Dauerhafte Notiz: Sitz auf Stufe 4' })).toBeVisible();
+  // Satz 1 wird Aufwärmsatz; der erste Arbeitssatz zeigt jetzt die Vorwerte vom letzten Mal.
+  await bf2.getByRole('button', { name: 'Satz 1: Typ oder entfernen' }).click();
+  await bf2.getByRole('button', { name: 'Aufwärmen' }).click();
+  await expect(bf2.getByLabel('kg Satz A1', { exact: true })).toBeVisible();
+  await expect(bf2.getByRole('button', { name: 'Vorwert für Satz 1 übernehmen' })).toHaveText('50 × 10');
+  await logSet(page, 'Butterfly (Maschine)', '1', '55', '10');
+  await expect(bf2.getByRole('img', { name: 'neuer Rekord' })).toHaveCount(1);
+
+  const sh = region(page, 'Seitheben');
+  await sh.getByRole('button', { name: 'Übung bearbeiten' }).click();
+  await sh.getByRole('button', { name: 'Tauschen' }).click();
+  await page.getByRole('dialog', { name: 'Seitheben tauschen gegen …' }).getByRole('button', { name: 'Beinbeuger sitzend' }).click();
+  await expect(region(page, 'Seitheben')).toHaveCount(0);
+  await expect(region(page, 'Beinbeuger sitzend').getByLabel('kg Satz 3', { exact: true })).toBeVisible();
+
+  await finish(page);
+  await page.getByRole('dialog', { name: 'Torso geändert' }).getByRole('button', { name: 'Nur dieses Training' }).click();
+  await expect(sum).toContainText('Neuer Rekord: Butterfly (Maschine), 55 × 10');
+  await server.stop();
+});
+
+test('Wischen mit dem Finger öffnet „Entfernen“, senkrechtes Wischen scrollt nur', async ({ page, context, browserName }) => {
+  test.skip(browserName !== 'chromium', 'echte Touch-Folgen gibt es nur über Chromium');
+  const { server } = await setup(page, context);
+  await page.getByRole('button', { name: 'Torso starten' }).click();
+  const seit = region(page, 'Seitheben');
+  const row = seit.getByLabel('kg Satz 2', { exact: true }).locator('xpath=ancestor::tr');
+  await row.scrollIntoViewIfNeeded();
+  const cdp = await context.newCDPSession(page);
+  const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', x = 0, y = 0) =>
+    cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
+
+  let box = (await row.boundingBox())!;
+  await touch('touchStart', box.x + 120, box.y + box.height / 2);
+  for (let i = 1; i <= 8; i++) await touch('touchMove', box.x + 120 - i, box.y + box.height / 2 - i * 12);
+  await touch('touchEnd');
+  await expect(seit.getByText(/entfernen\?/)).toHaveCount(0);
+
+  box = (await row.boundingBox())!;
+  const y = box.y + box.height / 2;
+  await touch('touchStart', box.x + box.width - 30, y);
+  for (let i = 1; i <= 8; i++) await touch('touchMove', box.x + box.width - 30 - i * 16, y);
+  await touch('touchEnd');
+  await expect(seit.getByText('Satz 2 entfernen?')).toBeVisible();
+  await expect(seit.getByRole('button', { name: 'Satz 2 erledigt', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  await server.stop();
+});
