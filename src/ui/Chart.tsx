@@ -3,6 +3,7 @@ import { fmtShort } from './util';
 
 // Linienchart für eine Messgröße über die Zeit (eine Achse, eine Linie).
 // Antippen oder Überfahren zeigt den Wert des nächsten Punkts.
+// Mit avg (je Punkt ein Wert) zeigt die Linie diesen Schnitt und die Punkte die Einzelwerte, etwa beim Körpergewicht.
 export interface Point {
   date: string;
   value: number;
@@ -31,20 +32,33 @@ const fmtVal = (v: number) =>
 
 export { niceTicks };
 
-export function LineChart({ points, unit, label }: { points: Point[]; unit: string; label: string }) {
+export function LineChart({
+  points,
+  unit,
+  label,
+  avg,
+  noun = 'Trainings',
+}: {
+  points: Point[];
+  unit: string;
+  label: string;
+  avg?: number[];
+  noun?: string;
+}) {
   const [hover, setHover] = useState<number | null>(null);
   if (points.length === 0) return <p className="muted small">Noch keine Daten für diesen Chart.</p>;
 
   const t = points.map((p) => Date.parse(p.date));
   const v = points.map((p) => p.value);
-  const ticks = niceTicks(Math.min(...v), Math.max(...v));
+  const line = avg ?? v;
+  const ticks = niceTicks(Math.min(...v, ...line), Math.max(...v, ...line));
   const yMin = ticks[0];
   const yMax = ticks[ticks.length - 1];
   const tMin = Math.min(...t);
   const tMax = Math.max(...t);
   const x = (ms: number) => PAD.l + (tMax === tMin ? (W - PAD.l - PAD.r) / 2 : ((ms - tMin) / (tMax - tMin)) * (W - PAD.l - PAD.r));
   const y = (val: number) => PAD.t + (1 - (val - yMin) / (yMax - yMin || 1)) * (H - PAD.t - PAD.b);
-  const path = points.map((_, i) => `${i ? 'L' : 'M'}${x(t[i]).toFixed(1)},${y(v[i]).toFixed(1)}`).join(' ');
+  const path = points.map((_, i) => `${i ? 'L' : 'M'}${x(t[i]).toFixed(1)},${y(line[i]).toFixed(1)}`).join(' ');
   const xLabels = points.length === 1 ? [0] : [0, Math.floor((points.length - 1) / 2), points.length - 1].filter((i, k, a) => a.indexOf(i) === k);
   const last = points.length - 1;
   const h = hover ?? null;
@@ -63,7 +77,7 @@ export function LineChart({ points, unit, label }: { points: Point[]; unit: stri
         className="chart"
         viewBox={`0 0 ${W} ${H}`}
         role="img"
-        aria-label={`${label}: ${points.length} Trainings, zuletzt ${fmtVal(v[last])} ${unit}`}
+        aria-label={`${label}: ${points.length} ${noun}, zuletzt ${fmtVal(v[last])} ${unit}`}
         onPointerMove={(e) => setHover(nearest(e.clientX, e.currentTarget))}
         onPointerDown={(e) => setHover(nearest(e.clientX, e.currentTarget))}
         onPointerLeave={() => setHover(null)}
@@ -83,8 +97,12 @@ export function LineChart({ points, unit, label }: { points: Point[]; unit: stri
           </text>
         ))}
         <path d={path} fill="none" stroke="var(--accent)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-        {points.length <= 60 &&
-          points.map((_, i) => <circle key={i} cx={x(t[i])} cy={y(v[i])} r={4} fill="var(--accent)" stroke="var(--card)" strokeWidth={2} />)}
+        {avg
+          ? points.map((_, i) => (
+              <circle key={i} cx={x(t[i])} cy={y(v[i])} r={points.length > 60 ? 2 : 3} fill="var(--muted)" opacity={0.7} />
+            ))
+          : points.length <= 60 &&
+            points.map((_, i) => <circle key={i} cx={x(t[i])} cy={y(v[i])} r={4} fill="var(--accent)" stroke="var(--card)" strokeWidth={2} />)}
         {h != null && (
           <g>
             <line x1={x(t[h])} x2={x(t[h])} y1={PAD.t} y2={H - PAD.b} stroke="var(--muted)" strokeWidth={1} />
@@ -98,11 +116,14 @@ export function LineChart({ points, unit, label }: { points: Point[]; unit: stri
             <strong>
               {fmtVal(v[h])} {unit}
             </strong>{' '}
-            <span className="muted">am {fmtShort(points[h].date)}</span>
+            <span className="muted">
+              am {fmtShort(points[h].date)}
+              {avg ? ` · Schnitt ${fmtVal(avg[h])} ${unit}` : ''}
+            </span>
           </>
         ) : (
           <span className="muted">
-            zuletzt {fmtVal(v[last])} {unit} · Antippen für Werte
+            {avg ? `Punkte: Tageswerte · Linie: 7-Tage-Schnitt` : `zuletzt ${fmtVal(v[last])} ${unit}`} · Antippen für Werte
           </span>
         )}
       </figcaption>

@@ -1,14 +1,16 @@
 import Dexie, { type Table } from 'dexie';
 import { sanitize } from './limits';
-import type {
-  Exercise,
-  RowByTable,
-  TableName,
-  Template,
-  TemplateExercise,
-  Workout,
-  WorkoutExercise,
-  WSet,
+import {
+  TABLES,
+  type BodyWeight,
+  type Exercise,
+  type RowByTable,
+  type TableName,
+  type Template,
+  type TemplateExercise,
+  type Workout,
+  type WorkoutExercise,
+  type WSet,
 } from './types';
 
 // Lokale Zwischenkopie im Browser (IndexedDB). Die Wahrheit liegt in Supabase;
@@ -20,6 +22,7 @@ export class LocalDB extends Dexie {
   workouts!: Table<Workout, string>;
   workout_exercises!: Table<WorkoutExercise, string>;
   sets!: Table<WSet, string>;
+  body_weights!: Table<BodyWeight, string>;
   meta!: Table<{ key: string; value: unknown }, string>;
 
   constructor(name = 'trainings-app') {
@@ -32,6 +35,10 @@ export class LocalDB extends Dexie {
       workout_exercises: 'id, _dirty, workout_id, exercise_id',
       sets: 'id, _dirty, workout_exercise_id, workout_id, exercise_id',
       meta: 'key',
+    });
+    // Stufe 2: Körpergewicht. Bestehende Versionen nie umschreiben, nur neue anhängen.
+    this.version(2).stores({
+      body_weights: 'id, _dirty, day',
     });
   }
 
@@ -108,18 +115,16 @@ export async function setMeta(key: string, value: unknown) {
   await db.meta.put({ key, value });
 }
 
-const ALL: TableName[] = ['exercises', 'templates', 'template_exercises', 'workouts', 'workout_exercises', 'sets'];
-
 export async function pendingCount(state: 1 | 2 = 1): Promise<number> {
   let n = 0;
-  for (const name of ALL) n += await db.tbl(name).where('_dirty').equals(state).count();
+  for (const name of TABLES) n += await db.tbl(name).where('_dirty').equals(state).count();
   return n;
 }
 
 // Zurückgehaltene Zeilen (vom Server abgelehnt), zum Anzeigen unter „Mehr“.
 export async function heldRows() {
   const out: { table: TableName; id: string; error: string | null }[] = [];
-  for (const name of ALL) {
+  for (const name of TABLES) {
     for (const r of await db.tbl(name).where('_dirty').equals(2).toArray()) {
       out.push({ table: name, id: r.id, error: r._error ?? null });
     }
@@ -129,7 +134,7 @@ export async function heldRows() {
 
 // Zurückgehaltene Zeilen noch einmal senden (nach einem Update der App oder der Datenbank).
 export async function retryHeld() {
-  for (const name of ALL) {
+  for (const name of TABLES) {
     const t = db.tbl(name);
     await db.transaction('rw', t, async () => {
       for (const r of await t.where('_dirty').equals(2).toArray()) {

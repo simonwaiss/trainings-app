@@ -34,12 +34,42 @@ for (const scheme of ['light', 'dark'] as const) {
     await r.getByLabel('Wiederholungen Satz 1', { exact: true }).fill('9');
     await r.getByRole('button', { name: 'Satz 1 erledigt', exact: true }).click();
     await page.screenshot({ path: `${OUT}/${scheme}-2-training.png`, fullPage: true });
-    await r.getByRole('button', { name: 'Butterfly (Maschine)' }).click();
+    await r.getByRole('link', { name: 'Butterfly (Maschine)' }).click();
     await page.waitForTimeout(300);
     await page.screenshot({ path: `${OUT}/${scheme}-3-uebung.png`, fullPage: true });
     const card = page.locator('.card').first();
     await card.locator('svg').click({ position: { x: 200, y: 80 } });
     await card.screenshot({ path: `${OUT}/${scheme}-4-chart.png` });
+
+    // Gewicht: drei Wochen Werte, heute frisch eingetragen.
+    const days = await page.evaluate(() =>
+      Array.from({ length: 21 }, (_, n) => {
+        const d = new Date();
+        d.setDate(d.getDate() - n - 1);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      }),
+    );
+    const now = new Date().toISOString();
+    mock.tables.set(
+      'body_weights',
+      new Map(
+        days
+          .filter((_, n) => n % 5 !== 3)
+          .map((day, n) => [
+            `dddddddd-0000-4000-8000-${String(n).padStart(12, '0')}`,
+            { id: `dddddddd-0000-4000-8000-${String(n).padStart(12, '0')}`, user_id: '11111111-1111-4111-8111-111111111111',
+              day, weight_kg: Math.round((78.4 + n * 0.04 + Math.sin(n * 1.7) * 0.5) * 10) / 10, source: n > 15 ? 'vault' : 'app',
+              note: null, created_at: now, updated_at: now, deleted_at: null },
+          ]),
+      ),
+    );
+    await page.goto(`${url}#/gewicht`);
+    await page.reload();
+    await expect(page.getByText('Vorwoche')).toBeVisible();
+    await page.getByLabel('Gewicht in kg').fill('78,6');
+    await page.getByRole('button', { name: 'Speichern' }).click();
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: `${OUT}/${scheme}-5-gewicht.png`, fullPage: true });
     await server.stop();
   });
 }

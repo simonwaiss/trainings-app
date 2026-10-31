@@ -9,6 +9,7 @@ export const LIMITS = {
   weightKg: { min: 0, max: 99999.99 },
   reps: { min: 0, max: 10000 },
   rpe: { min: 0, max: 10 },
+  bodyWeightKg: { min: 20, max: 300 },
 };
 
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
@@ -55,6 +56,11 @@ export function sanitize<T extends TableName>(table: T, row: RowByTable[T]): Row
       r.position = Math.max(1, Math.round(Number(r.position) || 1));
       if (r.side !== 'L' && r.side !== 'R') r.side = null;
       if (!['normal', 'warmup', 'drop', 'failure'].includes(r.kind as string)) r.kind = 'normal';
+      break;
+    case 'body_weights':
+      // saveWeight lässt nur Werte in diesem Bereich zu; das hier fängt nur Ausreißer ab.
+      r.weight_kg = num(r.weight_kg, LIMITS.bodyWeightKg.min, LIMITS.bodyWeightKg.max, 2);
+      if (r.source !== 'vault') r.source = 'app';
       break;
   }
   return r as unknown as RowByTable[T];

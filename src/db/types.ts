@@ -66,13 +66,21 @@ export interface WSet extends Base {
   note: string | null;
 }
 
+export interface BodyWeight extends Base {
+  day: string; // Tag im Format JJJJ-MM-TT (Ortszeit); die id ergibt sich daraus
+  weight_kg: number;
+  source: 'app' | 'vault';
+  note: string | null;
+}
+
 export type TableName =
   | 'exercises'
   | 'templates'
   | 'template_exercises'
   | 'workouts'
   | 'workout_exercises'
-  | 'sets';
+  | 'sets'
+  | 'body_weights';
 
 // Reihenfolge beim Senden: erst Eltern, dann Kinder (Fremdschlüssel).
 export const TABLES: TableName[] = [
@@ -82,6 +90,7 @@ export const TABLES: TableName[] = [
   'workouts',
   'workout_exercises',
   'sets',
+  'body_weights',
 ];
 
 export interface RowByTable {
@@ -91,4 +100,5 @@ export interface RowByTable {
   workouts: Workout;
   workout_exercises: WorkoutExercise;
   sets: WSet;
+  body_weights: BodyWeight;
 }

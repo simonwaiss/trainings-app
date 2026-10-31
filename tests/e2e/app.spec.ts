@@ -323,3 +323,90 @@ test('Wischen mit dem Finger öffnet „Entfernen“, senkrechtes Wischen scroll
   await expect(seit.getByRole('button', { name: 'Satz 2 erledigt', exact: true })).toHaveAttribute('aria-pressed', 'false');
   await server.stop();
 });
+
+test('Gewicht: morgens eintragen, 7-Tage-Schnitt und Vorwoche sehen, ohne Netz nachsenden', async ({ page, context }) => {
+  const { mock, server } = await setup(page, context);
+  await swReady(page);
+  const [today, yesterday, minus8, minus10] = await page.evaluate(() =>
+    [0, 1, 8, 10].map((n) => {
+      const d = new Date();
+      d.setDate(d.getDate() - n);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }),
+  );
+  // Zwei Werte aus der Vorwoche liegen schon beim Server (wie die aus dem Vault übernommenen).
+  const vault = (id: string, day: string, kg: number) => ({
+    id,
+    user_id: '11111111-1111-4111-8111-111111111111',
+    day,
+    weight_kg: kg,
+    source: 'vault',
+    note: 'aus Körpergewicht.md',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    deleted_at: null,
+  });
+  mock.tables.set(
+    'body_weights',
+    new Map([
+      ['cccccccc-0000-4000-8000-000000000001', vault('cccccccc-0000-4000-8000-000000000001', minus8, 79.4)],
+      ['cccccccc-0000-4000-8000-000000000002', vault('cccccccc-0000-4000-8000-000000000002', minus10, 80)],
+    ]),
+  );
+
+  await page.getByRole('link', { name: 'Gewicht' }).click();
+  await page.reload();
+  const stats = region(page, '7-Tage-Schnitt');
+  await expect(page.getByText('aus dem Vault')).toHaveCount(2);
+  await expect(stats).toContainText('Noch keine Werte in den letzten 7 Tagen.');
+  await expect(stats).toContainText('Vorwoche 79,7 kg');
+  await expect(page.getByLabel('Tag', { exact: true })).toHaveValue(today);
+
+  // Morgens: Gewicht eintragen.
+  await page.getByLabel('Gewicht in kg').fill('78,6');
+  await page.getByRole('button', { name: 'Speichern' }).click();
+  await expect(page.getByRole('status')).toContainText('Gespeichert: 78,6 kg');
+  await expect(stats).toContainText('78,6 kg');
+  await expect(stats).toContainText('aus 1 Wert');
+  await expect(stats).toContainText('Vorwoche 79,7 kg · −1,1 kg');
+  await expect(page.getByText('✓ gespeichert')).toBeVisible();
+  expect(mock.rows('body_weights').filter((r) => r.day === today).map((r) => r.weight_kg)).toEqual([78.6]);
+
+  // Funkloch: den vergessenen Wert von gestern nachtragen, App schließen und wieder öffnen.
+  await context.setOffline(true);
+  mock.offline = true;
+  await page.getByLabel('Tag', { exact: true }).fill(yesterday);
+  await expect(page.getByLabel('Gewicht in kg')).toHaveValue('');
+  await page.getByLabel('Gewicht in kg').fill('79');
+  await page.getByRole('button', { name: 'Speichern' }).click();
+  await expect(page.getByText(/offline · 1 offen/)).toBeVisible();
+  await page.reload();
+  await expect(stats).toContainText('78,8 kg');
+  await expect(stats).toContainText('aus 2 Werten');
+  await expect(stats).toContainText('· −0,9 kg');
+  expect(mock.rows('body_weights').filter((r) => r.day === yesterday)).toHaveLength(0);
+
+  mock.offline = false;
+  await context.setOffline(false);
+  await expect(page.getByText('✓ gespeichert')).toBeVisible({ timeout: 20_000 });
+  expect(mock.rows('body_weights').filter((r) => r.day === yesterday).map((r) => r.weight_kg)).toEqual([79]);
+
+  // Zweiter Wert am selben Tag ersetzt den ersten, es entsteht keine zweite Zeile.
+  await expect(page.getByLabel('Tag', { exact: true })).toHaveValue(today);
+  await expect(page.getByLabel('Gewicht in kg')).toHaveValue('78,6');
+  await page.getByLabel('Gewicht in kg').fill('78,4');
+  await page.getByRole('button', { name: 'Speichern' }).click();
+  await expect(page.getByText('✓ gespeichert')).toBeVisible();
+  await expect.poll(() => mock.rows('body_weights').filter((r) => r.day === today).map((r) => r.weight_kg)).toEqual([78.4]);
+  expect(mock.rows('body_weights')).toHaveLength(4);
+
+  // Ein Tipp auf einen Tag in der Liste: ändern oder entfernen.
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: /: 79,0 kg, ändern$/ }).click();
+  await expect(page.getByLabel('Tag', { exact: true })).toHaveValue(yesterday);
+  await page.getByRole('button', { name: 'Entfernen' }).click();
+  await expect(page.getByRole('status')).toContainText('Entfernt');
+  await expect(stats).toContainText('aus 1 Wert');
+  await expect.poll(() => mock.rows('body_weights').find((r) => r.day === yesterday)?.deleted_at).not.toBeNull();
+  await server.stop();
+});

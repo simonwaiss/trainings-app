@@ -15,6 +15,8 @@ Adresse: https://simonwaiss.github.io/trainings-app/. Anforderungen und Stand de
   Arbeitssätze; Aufwärmsätze gehören nur zum Training) und fragt, ob die Änderung nur heute gilt; Gewichte merkt
   sich ein Trainingstag nie, Vorwerte kommen immer aus dem letzten Training. Rekorde: `recordSetIds`.
 - `src/import/strong.ts`: Strong-CSV lesen und in Zeilen mit festen ids umwandeln.
+- `src/data/weight.ts`: Körpergewicht, ein Wert je Tag; die id kommt fest aus dem Tag (`stableId('gewicht', tag)`),
+  darum schreiben zwei Geräte und ein Import per SQL in dieselbe Zeile. 7-Tage-Schnitt wie die Ansicht `v_gewicht`.
 - `supabase/migrations/`: Datenbank-Schema samt Zeilenrechten (RLS). `supabase/functions/konto-einrichten`: legt einmalig
   Simons Konto an.
 
@@ -22,7 +24,9 @@ Adresse: https://simonwaiss.github.io/trainings-app/. Anforderungen und Stand de
 
 - **Kein Datenverlust.** Nie wirklich löschen, nur `deleted_at` setzen (die App hat kein DELETE-Recht). Schema-Änderungen
   nur als neue Migrationsdatei, die bestehende Daten übernimmt; vor jeder Migration eine Sicherung als Datei nach
-  `~/Backups/trainings-app/` (außerhalb jedes Repos). Die lokale Datenbank (Dexie) nur mit neuer `version()` ändern,
+  `~/Backups/trainings-app/` (außerhalb jedes Repos). Ohne Datenbank-Passwort geht das so: im Supabase-Dashboard
+  (Simons Chrome) im SQL-Editor je Tabelle `count(*)` und `json_agg(t)::text` abfragen, „Export → Download CSV“, die CSV
+  in eine JSON-Datei umwandeln und die Zeilenzahlen gegen `count(*)` prüfen. Die lokale Datenbank (Dexie) nur mit neuer `version()` ändern,
   nie eine bestehende Version umschreiben.
 - **Nichts Geheimes ins Repo:** nur Projekt-Adresse und öffentlicher Schlüssel (`src/config.ts`). Keine Mail-Adressen,
   keine Strong-Exporte (`*.csv` ist ausgeschlossen), keine Sicherungen.
@@ -47,3 +51,8 @@ Direkt auf `main`, deutsch committen, nur eigene Pfade stagen. Vor dem Push `npm
 
 Ansicht `public.v_saetze`: ein gültiger Satz je Zeile mit `datum`, `training`, `uebung`, `satz`, `seite`, `kg`, `wdh`,
 `e1rm` (geschätztes Maximum nach Epley), `quelle` (app/strong). Gelöschte und leere Sätze sind schon herausgefiltert.
+
+Ansicht `public.v_gewicht`: ein Tag mit Gewicht je Zeile mit `datum`, `kg`, `schnitt_7` (Schnitt der 7 Tage bis
+einschließlich dieses Tags), `werte_7`, `schnitt_vorwoche` (die 7 Tage davor), `werte_vorwoche`, `differenz`, `notiz`,
+`quelle` (app/vault). Sonntags ist das Montag bis Sonntag gegen die Woche davor. Gewicht nachtragen per SQL nur mit der
+id aus `stableId('gewicht', tag)` (sonst lehnt `unique (user_id, day)` die App-Zeile desselben Tags ab).

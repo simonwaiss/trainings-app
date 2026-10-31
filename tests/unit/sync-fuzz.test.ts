@@ -13,6 +13,7 @@ import {
   startWorkout,
   updateSet,
 } from '../../src/data/ops';
+import { removeWeight, saveWeight } from '../../src/data/weight';
 import { db, LocalDB, patch, softDelete, useDatabase } from '../../src/db/local';
 import { TABLES, type Base, type TableName, type WSet } from '../../src/db/types';
 import { supabaseRemote } from '../../src/sync/remote-supabase';
@@ -93,7 +94,7 @@ function pgTime(us: number): string {
 
 type Row = Record<string, unknown> & { id: string };
 
-// Spalten und Fremdschlüssel aus supabase/migrations/20261027000001_training.sql.
+// Spalten und Fremdschlüssel aus supabase/migrations/ (Training und Körpergewicht).
 const COMMON = ['id', 'user_id', 'note', 'created_at', 'updated_at', 'deleted_at'];
 const COLUMNS: Record<TableName, string[]> = {
   exercises: [...COMMON, 'name', 'unilateral', 'rest_seconds'],
@@ -102,6 +103,7 @@ const COLUMNS: Record<TableName, string[]> = {
   workouts: [...COMMON, 'template_id', 'name', 'started_at', 'finished_at', 'source'],
   workout_exercises: [...COMMON, 'workout_id', 'exercise_id', 'position'],
   sets: [...COMMON, 'workout_id', 'workout_exercise_id', 'exercise_id', 'position', 'side', 'weight_kg', 'reps', 'kind', 'done_at', 'rpe'],
+  body_weights: [...COMMON, 'day', 'weight_kg', 'source'],
 };
 const FK: Record<TableName, [string, TableName, boolean][]> = {
   exercises: [],
@@ -110,6 +112,7 @@ const FK: Record<TableName, [string, TableName, boolean][]> = {
   workouts: [['template_id', 'templates', false]],
   workout_exercises: [['workout_id', 'workouts', true], ['exercise_id', 'exercises', true]],
   sets: [['workout_id', 'workouts', true], ['workout_exercise_id', 'workout_exercises', true], ['exercise_id', 'exercises', true]],
+  body_weights: [],
 };
 
 const isInt = (v: unknown, min: number, max: number) => typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
@@ -141,6 +144,15 @@ function violation(table: TableName, r: Row): [string, string] | null {
           (r.reps == null || isInt(r.reps, 0, INT4)) &&
           ['normal', 'warmup', 'drop', 'failure'].includes(r.kind as string) &&
           (r.rpe == null || (typeof r.rpe === 'number' && Math.abs(r.rpe) < 100))
+        );
+      case 'body_weights':
+        return (
+          typeof r.day === 'string' &&
+          /^\d{4}-\d{2}-\d{2}$/.test(r.day) &&
+          typeof r.weight_kg === 'number' &&
+          r.weight_kg >= 20 &&
+          r.weight_kg <= 300 &&
+          (r.source === 'app' || r.source === 'vault')
         );
     }
   })();
@@ -387,6 +399,8 @@ async function userOp(r: Rng, say: (s: string) => void): Promise<void> {
     rename: 1.2,
     move: 0.6,
     deleteWorkout: 0.15,
+    weight: 0.8,
+    removeWeight: 0.2,
   });
   switch (op) {
     case 'addSet': {
@@ -456,6 +470,20 @@ async function userOp(r: Rng, say: (s: string) => void): Promise<void> {
       const w = r.pick(workouts);
       await deleteWorkout(w.id);
       return say(`Training ${short(w.id)} löschen`);
+    }
+    case 'weight': {
+      // Wenige Tage, damit beide Geräte oft denselben Tag treffen.
+      const day = r.pick(['2026-10-25', '2026-10-30', '2026-10-31', '2026-11-01']);
+      const kg = r.pick([78.5, 79, 79.25, 80.1]);
+      await saveWeight(day, kg);
+      return say(`Gewicht ${kg} am ${day}`);
+    }
+    case 'removeWeight': {
+      const days = (await db.body_weights.toArray()).filter(alive);
+      if (!days.length) break;
+      const w = r.pick(days);
+      await removeWeight(w.day);
+      return say(`Gewicht am ${w.day} entfernen`);
     }
     case 'start':
       break;

@@ -171,6 +171,66 @@ describe('Jede Tabelle und Ansicht ist abgesichert', () => {
   });
 });
 
+describe('Körpergewicht', () => {
+  const ins = (id: string, day: string, kg: number) =>
+    `insert into public.body_weights (id, day, weight_kg) values ('${id}', '${day}', ${kg})
+     on conflict (id) do update set weight_kg = excluded.weight_kg`;
+
+  it('die Ansicht v_gewicht rechnet je Tag den 7-Tage-Schnitt und die Vorwoche, nur für Simon', async () => {
+    const rows: [string, string, number][] = [
+      ['bbbbbbbb-0000-4000-8000-000000000001', '2026-10-18', 80],
+      ['bbbbbbbb-0000-4000-8000-000000000002', '2026-10-24', 79.4],
+      ['bbbbbbbb-0000-4000-8000-000000000003', '2026-10-25', 79],
+      ['bbbbbbbb-0000-4000-8000-000000000004', '2026-10-30', 78.5],
+      ['bbbbbbbb-0000-4000-8000-000000000005', '2026-10-31', 79],
+    ];
+    for (const [id, day, kg] of rows) await as('authenticated', SIMON, ins(id, day, kg));
+    await as('authenticated', SIMON, `update public.body_weights set deleted_at = now() where day = '2026-10-18'`);
+    await as('authenticated', SIMON, ins('bbbbbbbb-0000-4000-8000-000000000006', '2026-10-19', 80.2));
+
+    const view = await as<Record<string, unknown>>(
+      'authenticated',
+      SIMON,
+      `select datum::text, kg::float, schnitt_7::float, werte_7::int, schnitt_vorwoche::float, werte_vorwoche::int, differenz::float
+       from public.v_gewicht order by datum`,
+    );
+    expect(view.map((r) => r.datum)).toEqual(['2026-10-19', '2026-10-24', '2026-10-25', '2026-10-30', '2026-10-31']);
+    const last = view[view.length - 1];
+    // 25.10. bis 31.10.: 79, 78,5, 79; Vorwoche 18.10. bis 24.10.: 80,2 und 79,4 (der 18. ist entfernt)
+    expect(last).toMatchObject({ kg: 79, schnitt_7: 78.83, werte_7: 3, schnitt_vorwoche: 79.8, werte_vorwoche: 2, differenz: -0.97 });
+    expect(view[0]).toMatchObject({ schnitt_7: 80.2, werte_7: 1, schnitt_vorwoche: null, werte_vorwoche: 0 });
+
+    expect(await as('authenticated', FREMD, 'select * from public.v_gewicht')).toEqual([]);
+    expect(await as('authenticated', FREMD, 'select * from public.body_weights')).toEqual([]);
+    await expect(as('anon', null, 'select * from public.v_gewicht')).rejects.toThrow(/permission denied/);
+  });
+
+  it('je Tag nur eine Zeile, und unmögliche Werte lehnt die Datenbank ab', async () => {
+    await expect(as('authenticated', SIMON, ins('bbbbbbbb-0000-4000-8000-0000000000f1', '2026-10-31', 70))).rejects.toThrow(/unique/);
+    await expect(as('authenticated', SIMON, ins('bbbbbbbb-0000-4000-8000-0000000000f2', '2026-09-01', 786))).rejects.toThrow(/check/);
+    await expect(
+      as('authenticated', SIMON, `insert into public.body_weights (id, day, weight_kg, source) values ('bbbbbbbb-0000-4000-8000-0000000000f3', '2026-09-02', 79, 'x')`),
+    ).rejects.toThrow(/check/);
+  });
+
+  it('die Grenzen der App passen zur Datenbank', async () => {
+    const { sanitize } = await import('../../src/db/limits');
+    for (const [i, kg] of [5, 1000, 78.555].entries()) {
+      const r = sanitize('body_weights', {
+        id: `bbbbbbbb-0000-4000-8000-00000000010${i}`,
+        day: `2026-08-0${i + 1}`,
+        weight_kg: kg,
+        source: 'irgendwas' as 'app',
+        note: null,
+        created_at: new Date().toISOString(),
+        deleted_at: null,
+      });
+      await as('authenticated', SIMON, `insert into public.body_weights (id, day, weight_kg, source)
+        values ('${r.id}', '${r.day}', ${r.weight_kg}, '${r.source}')`);
+    }
+  });
+});
+
 describe('Nur Simon kommt rein', () => {
   it('lehnt jedes weitere Konto ab, auch mit erlaubter Adresse', async () => {
     await expect(

@@ -460,6 +460,25 @@ label.field > span {
   margin-top: 8px;
 }
 
+/* Körpergewicht */
+/* iOS Safari hält sich bei Datumsfeldern sonst nicht an die Breite und zentriert den Text. */
+input[type='date'].text {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+  text-align: left;
+}
+
+input[type='date'].text::-webkit-date-and-time-value {
+  text-align: left;
+}
+
+.big-number {
+  font-size: 32px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Untere Leiste */
 .tabbar {
   position: fixed;

@@ -12,6 +12,7 @@ import { More } from './More';
 import { RestTimer } from './RestTimer';
 import { TemplateEdit } from './TemplateEdit';
 import { useRoute } from './util';
+import { Weight } from './Weight';
 import { WorkoutView } from './WorkoutView';
 
 function Page({ route }: { route: string }) {
@@ -29,6 +30,8 @@ function Page({ route }: { route: string }) {
       return <ExerciseDetail id={id} />;
     case 'import':
       return <Import />;
+    case 'gewicht':
+      return <Weight />;
     case 'mehr':
       return <More />;
     default:
@@ -111,6 +114,7 @@ export function App() {
         {tab(active ? `/training/${active.id}` : '/', active ? 'Läuft' : 'Training', '🏋️', ['', 'training', 'tag'])}
         {tab('/verlauf', 'Verlauf', '🗓️', ['verlauf'])}
         {tab('/uebungen', 'Übungen', '📈', ['uebungen', 'uebung'])}
+        {tab('/gewicht', 'Gewicht', '⚖️', ['gewicht'])}
         {tab('/mehr', 'Mehr', '⋯', ['mehr', 'import'])}
       </nav>
     </div>
