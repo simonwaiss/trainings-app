@@ -41,7 +41,8 @@ export function WorkoutView({ id }: { id: string }) {
     [id],
   );
   const [picking, setPicking] = useState(false);
-  const [ending, setEnding] = useState<TemplateChange | null>(null);
+  // Offenes Fenster „Training beenden?“; change ist null, wenn alles wie geplant lief.
+  const [ending, setEnding] = useState<{ change: TemplateChange | null } | null>(null);
 
   if (workout === undefined || wes === undefined) return <p className="muted">Lädt …</p>;
   if (!workout || workout.deleted_at) {
@@ -60,13 +61,7 @@ export function WorkoutView({ id }: { id: string }) {
         {active ? (
           <button
             className="btn primary small"
-            onClick={async () => {
-              if (confirm('Training beenden? Sätze ohne Werte werden entfernt.')) {
-                await finishWorkout(workout.id);
-                go(`/training/${workout.id}`);
-                setEnding(await templateChanges(workout.id));
-              }
-            }}
+            onClick={async () => setEnding({ change: await templateChanges(workout.id) })}
           >
             Beenden
           </button>
@@ -118,7 +113,7 @@ export function WorkoutView({ id }: { id: string }) {
           }}
         />
       )}
-      {ending && <EndDialog workout={workout} change={ending} onClose={() => setEnding(null)} />}
+      {ending && <FinishDialog workout={workout} change={ending.change} onClose={() => setEnding(null)} />}
     </>
   );
 }
@@ -165,34 +160,39 @@ function Summary({ workout }: { workout: Workout }) {
   );
 }
 
-// Nach dem Beenden: Gilt die Änderung nur für dieses Training oder auch für den Trainingstag?
-function EndDialog({ workout, change, onClose }: { workout: Workout; change: TemplateChange; onClose: () => void }) {
-  const t = change.template;
-  const [naming, setNaming] = useState(!t);
+// „Training beenden?“: Lief etwas anders als geplant, steht es hier in Klartext, und Simon entscheidet, ob der
+// Trainingstag bleibt oder so angepasst wird. „Weiter trainieren“ schließt nur das Fenster.
+function FinishDialog({ workout, change, onClose }: { workout: Workout; change: TemplateChange | null; onClose: () => void }) {
+  const t = change?.template ?? null;
+  const free = !!change && !t; // freies Training mit Sätzen
+  const [naming, setNaming] = useState(false);
   const [name, setName] = useState(t ? `${t.name} (neu)` : workout.name === 'Freies Training' ? '' : workout.name);
-  const title = t ? `${t.name} geändert` : 'Als Trainingstag speichern?';
+  const [busy, setBusy] = useState(false);
 
-  const saveNew = async () => {
-    if (!name.trim()) return;
-    await saveWorkoutAsTemplate(workout.id, name);
+  const end = async (after?: () => Promise<unknown>) => {
+    if (busy) return;
+    setBusy(true);
+    await finishWorkout(workout.id);
+    if (after) await after();
     onClose();
+    go(`/training/${workout.id}`);
   };
 
   return (
     <div className="modal-back" onClick={onClose}>
-      <div className="modal" role="dialog" aria-label={title} onClick={(e) => e.stopPropagation()}>
-        <h2 style={{ margin: '4px 0 8px', fontSize: 18 }}>{title}</h2>
-        {t ? (
+      <div className="modal" role="dialog" aria-label="Training beenden?" onClick={(e) => e.stopPropagation()}>
+        <h2 style={{ margin: '4px 0 8px', fontSize: 18 }}>Training beenden?</h2>
+        {t && (
           <>
+            <p className="muted small" style={{ margin: '0 0 4px' }}>
+              Anders als geplant:
+            </p>
             <ul className="changes">
-              {change.lines.map((l) => (
+              {change!.lines.map((l) => (
                 <li key={l}>{l}</li>
               ))}
             </ul>
-            <p className="muted small">Gewichte und Wiederholungen merkt sich die App ohnehin als Vorwerte.</p>
           </>
-        ) : (
-          <p className="muted small">Dann kannst du dieses Training später mit einem Tipp wieder starten.</p>
         )}
         {naming ? (
           <>
@@ -201,31 +201,40 @@ function EndDialog({ workout, change, onClose }: { workout: Workout; change: Tem
               <input className="text" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
             </label>
             <div className="row">
-              <button className="btn grow" onClick={t ? () => setNaming(false) : onClose}>
-                {t ? 'Zurück' : 'Nein danke'}
+              <button className="btn grow" onClick={() => setNaming(false)}>
+                Zurück
               </button>
-              <button className="btn primary grow" disabled={!name.trim()} onClick={saveNew}>
+              <button
+                className="btn primary grow"
+                disabled={!name.trim() || busy}
+                onClick={() => end(() => saveWorkoutAsTemplate(workout.id, name))}
+              >
                 Speichern
               </button>
             </div>
           </>
         ) : (
           <div className="stack">
-            <button className="btn primary block" onClick={onClose}>
-              Nur dieses Training
+            <button className="btn primary block" disabled={busy} onClick={() => end()}>
+              {t ? `Beenden, ${t.name} bleibt wie geplant` : 'Beenden'}
             </button>
-            <button
-              className={`btn block${change.removes ? ' danger' : ''}`}
-              onClick={async () => {
-                await applyWorkoutToTemplate(workout.id);
-                onClose();
-              }}
-            >
-              {t!.name} ändern
+            {t && (
+              <button
+                className={`btn block${change!.removes ? ' danger' : ''}`}
+                disabled={busy}
+                onClick={() => end(() => applyWorkoutToTemplate(workout.id))}
+              >
+                Beenden und {t.name} so anpassen
+              </button>
+            )}
+            <button className="btn block" onClick={onClose}>
+              Weiter trainieren
             </button>
-            <button className="btn block" onClick={() => setNaming(true)}>
-              Als neuen Trainingstag speichern
-            </button>
+            {(t || free) && (
+              <button className="link small" onClick={() => setNaming(true)}>
+                {t ? 'Als neuen Trainingstag speichern' : 'Als Trainingstag speichern'}
+              </button>
+            )}
           </div>
         )}
       </div>

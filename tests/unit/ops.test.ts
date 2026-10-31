@@ -178,12 +178,41 @@ describe('Sätze entfernen, Satz-Typ, Übung tauschen', () => {
   });
 });
 
-describe('Trainingstag nach dem Beenden', () => {
+describe('Trainingstag beim Beenden', () => {
   it('fragt nichts, wenn das Training dem Trainingstag entspricht', async () => {
     const wid = await startWorkout(await torsoId());
     await fillAll(wid);
+    expect(await templateChanges(wid)).toBeNull();
     await finishWorkout(wid);
     expect(await templateChanges(wid)).toBeNull();
+  });
+
+  it('zeigt die Abweichungen schon vor dem Beenden; leere Sätze zählen als nicht gemacht, nichts wird entfernt', async () => {
+    const tid = await torsoId();
+    const wid = await startWorkout(tid);
+    const l = await wes(wid);
+    await fillAll(wid);
+    const leer = await setsOf(l[7].id); // Frontheben: nur Satz 1 gemacht
+    await updateSet(leer[leer.length - 1].id, { weight_kg: null, reps: null });
+    await updateSet(leer[leer.length - 2].id, { weight_kg: null, reps: null });
+    for (const s of await setsOf(l[5].id)) await updateSet(s.id, { weight_kg: null, reps: null }); // Latzug ausgelassen
+    await addSet(l[3].id); // Enges Rudern 2 → 3
+    for (const s of await setsOf(l[3].id)) await updateSet(s.id, { weight_kg: 30, reps: 10 });
+
+    const change = (await templateChanges(wid))!;
+    expect(change.lines).toEqual([
+      'Nicht gemacht: Latzug breit, Maschine (2 Sätze)',
+      'Enges Rudern, Maschine mit Brustpolster: 3 statt 2 Sätze',
+      'Frontheben am Kabel: 1 statt 2 Sätze',
+    ]);
+    expect(change.removes).toBe(true);
+    // Die Vorschau ändert nichts: Training läuft weiter, kein Satz ist weg, der Trainingstag ist wie vorher.
+    expect((await db.workouts.get(wid))!.finished_at).toBeNull();
+    expect(await setsOf(l[5].id)).toHaveLength(2);
+    expect((await templateLinks(tid)).map((x) => x.sets)).toEqual([2, 2, 3, 2, 2, 2, 1, 2, 2, 2, 1, 2]);
+    // Nach dem Beenden steht dasselbe da.
+    await finishWorkout(wid);
+    expect((await templateChanges(wid))!.lines).toEqual(change.lines);
   });
 
   it('nennt entfernte Sätze, leer gelassene Übungen und neue Übungen', async () => {
@@ -205,10 +234,11 @@ describe('Trainingstag nach dem Beenden', () => {
     const change = (await templateChanges(wid))!;
     expect(change.template!.id).toBe(tid);
     expect(change.lines).toEqual([
-      'Butterfly (Maschine): 2 → 3 Sätze',
-      'Seitheben: 3 → 2 Sätze',
-      'Dips neu (2 Sätze)',
-      'Weggelassen: Latzug breit, Maschine · Hyperextensions',
+      'Nicht gemacht: Latzug breit, Maschine (2 Sätze)',
+      'Nicht gemacht: Hyperextensions (2 Sätze)',
+      'Butterfly (Maschine): 3 statt 2 Sätze',
+      'Seitheben: 2 statt 3 Sätze',
+      'Zusätzlich: Dips (2 Sätze)',
     ]);
     expect(change.removes).toBe(true);
 

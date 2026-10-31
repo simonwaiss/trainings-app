@@ -247,10 +247,12 @@ export async function deleteWorkout(workoutId: string) {
   await softDelete('workouts', workoutId);
 }
 
-// ---------- Trainingstag nach dem Beenden anpassen ----------
+// ---------- Trainingstag beim Beenden anpassen ----------
 
-// Eine Übung, wie sie im beendeten Training vorkam. Gezählt werden Arbeitssätze (Satznummern ohne
-// Aufwärmsätze); Aufwärmsätze gehören nur zum Training. Übungen ganz ohne Sätze zählen als weggelassen.
+// Eine Übung, wie sie im Training vorkam oder beim Beenden bleibt. Gezählt werden Arbeitssätze (Satznummern
+// ohne Aufwärmsätze) mit Werten oder Haken, also was `finishWorkout` behält; darum stimmt die Vorschau vor dem
+// Beenden mit dem Ergebnis danach überein. Aufwärmsätze gehören nur zum Training. Übungen ohne solche Sätze
+// zählen als nicht gemacht.
 interface Slot {
   exerciseId: string;
   sets: number;
@@ -263,7 +265,9 @@ async function workoutSlots(workoutId: string): Promise<Slot[]> {
     .sort((a, b) => a.position - b.position);
   const out: Slot[] = [];
   for (const we of wes) {
-    const sets = (await db.sets.where('workout_exercise_id').equals(we.id).toArray()).filter(alive);
+    const sets = (await db.sets.where('workout_exercise_id').equals(we.id).toArray())
+      .filter(alive)
+      .filter((s) => s.done_at || s.weight_kg != null || s.reps != null);
     const count = workRanks(sets).size;
     if (count > 0) out.push({ exerciseId: we.exercise_id, sets: count, note: we.note });
   }
@@ -296,7 +300,8 @@ export interface TemplateChange {
   removes: boolean; // fällt im Trainingstag etwas weg?
 }
 
-// Was sich gegenüber dem Trainingstag geändert hat; null, wenn es nichts zu fragen gibt.
+// Was gegenüber dem Trainingstag anders ist, in Klartext; null, wenn alles wie geplant lief. Geht vor und
+// nach dem Beenden.
 export async function templateChanges(workoutId: string): Promise<TemplateChange | null> {
   const workout = await db.workouts.get(workoutId);
   if (!workout) return null;
@@ -312,21 +317,19 @@ export async function templateChanges(workoutId: string): Promise<TemplateChange
   const names = new Map((await db.exercises.bulkGet(ids)).filter((e): e is Exercise => !!e).map((e) => [e.id, e.name]));
   const name = (id: string) => names.get(id) ?? 'Übung';
 
-  const lines: string[] = [];
+  // Nicht Gemachtes zuerst, weil es am ehesten ein Versehen ist.
+  const lines = removed.map((l) => `Nicht gemacht: ${name(l.exercise_id)} (${saetze(l.sets)})`);
   for (const { link, slot } of pairs) {
-    if (slot.sets !== link.sets) lines.push(`${name(link.exercise_id)}: ${link.sets} → ${saetze(slot.sets)}`);
+    if (slot.sets !== link.sets) lines.push(`${name(link.exercise_id)}: ${slot.sets} statt ${saetze(link.sets)}`);
   }
-  for (const { slot } of added) lines.push(`${name(slot.exerciseId)} neu (${saetze(slot.sets)})`);
-  // Weggelassenes in einer Zeile, sonst wird die Liste nach einem kurzen Training sehr lang.
-  // Trenner „·“, weil manche Übungsnamen selbst ein Komma enthalten.
-  if (removed.length) lines.push(`Weggelassen: ${removed.map((l) => name(l.exercise_id)).join(' · ')}`);
+  for (const { slot } of added) lines.push(`Zusätzlich: ${name(slot.exerciseId)} (${saetze(slot.sets)})`);
   if (pairs.some((p, i) => i > 0 && p.at < pairs[i - 1].at)) lines.push('Reihenfolge geändert');
 
   if (lines.length === 0) return null;
   return { template, lines, removes: removed.length > 0 || pairs.some((p) => p.slot.sets < p.link.sets) };
 }
 
-// „Trainingstag ändern“: Der Trainingstag sieht danach aus wie das Training (Übungen, Reihenfolge,
+// „Beenden und Trainingstag so anpassen“: Der Trainingstag sieht danach aus wie das Training (Übungen, Reihenfolge,
 // Satzzahl). Hinweise bleiben an ihrer Übung; Weggelassenes wird nur als gelöscht markiert.
 export async function applyWorkoutToTemplate(workoutId: string) {
   const workout = await db.workouts.get(workoutId);

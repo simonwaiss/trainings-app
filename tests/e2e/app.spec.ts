@@ -30,6 +30,14 @@ async function logSet(page: Page, exercise: string, label: string, kg: string, r
   await r.getByRole('button', { name: `Satz ${label} erledigt`, exact: true }).click();
 }
 
+// Tippt „Beenden“; das Fenster „Training beenden?“ geht auf.
+async function endDialog(page: Page) {
+  await page.getByRole('button', { name: 'Beenden', exact: true }).click();
+  const dlg = page.getByRole('dialog', { name: 'Training beenden?' });
+  await expect(dlg).toBeVisible();
+  return dlg;
+}
+
 test('Torso loggen, beim nächsten Mal die Vorwerte sehen, Sätze liegen beim Server', async ({ page, context }) => {
   const { mock, server, url } = await setup(page, context);
   // Der Plan ist vorbelegt und beim Server angekommen.
@@ -42,8 +50,7 @@ test('Torso loggen, beim nächsten Mal die Vorwerte sehen, Sätze liegen beim Se
   await logSet(page, 'Enges Rudern, Maschine mit Brustpolster', '1 L', '30', '12');
   await logSet(page, 'Enges Rudern, Maschine mit Brustpolster', '1 R', '30', '11');
 
-  page.once('dialog', (d) => d.accept());
-  await page.getByRole('button', { name: 'Beenden', exact: true }).click();
+  await (await endDialog(page)).getByRole('button', { name: 'Beenden, Torso bleibt wie geplant' }).click();
   await expect(page.getByText('beendet')).toBeVisible();
   await expect(page.getByText('✓ gespeichert')).toBeVisible();
 
@@ -188,12 +195,7 @@ async function swipeLeft(page: Page, input: ReturnType<Page['getByLabel']>) {
   await page.mouse.up();
 }
 
-const finish = async (page: Page) => {
-  page.once('dialog', (d) => d.accept());
-  await page.getByRole('button', { name: 'Beenden', exact: true }).click();
-};
-
-test('Satz wegwischen, beim Beenden „Torso ändern“: das nächste Torso hat den Satz nicht mehr', async ({ page, context }) => {
+test('Satz wegwischen, beim Beenden „Torso so anpassen“: das nächste Torso hat den Satz nicht mehr', async ({ page, context }) => {
   const { mock, server, url } = await setup(page, context);
   await page.getByRole('button', { name: 'Torso starten' }).click();
   const seit = region(page, 'Seitheben');
@@ -208,12 +210,11 @@ test('Satz wegwischen, beim Beenden „Torso ändern“: das nächste Torso hat 
   await logSet(page, 'Butterfly (Maschine)', '1', '50', '10');
   await logSet(page, 'Butterfly (Maschine)', '2', '50', '9');
 
-  await finish(page);
-  const dlg = page.getByRole('dialog', { name: 'Torso geändert' });
-  await expect(dlg.getByText('Seitheben: 3 → 2 Sätze')).toBeVisible();
-  await expect(dlg.getByText(/^Weggelassen: Kabel-Flys von unten nach oben · Enges Rudern/)).toBeVisible();
-  await expect(dlg.getByRole('button').first()).toHaveText('Nur dieses Training');
-  await dlg.getByRole('button', { name: 'Torso ändern' }).click();
+  const dlg = await endDialog(page);
+  await expect(dlg.getByText('Seitheben: 2 statt 3 Sätze')).toBeVisible();
+  await expect(dlg.getByText('Nicht gemacht: Kabel-Flys von unten nach oben (2 Sätze)')).toBeVisible();
+  await expect(dlg.getByRole('button').first()).toHaveText('Beenden, Torso bleibt wie geplant');
+  await dlg.getByRole('button', { name: 'Beenden und Torso so anpassen' }).click();
   await expect(dlg).toHaveCount(0);
   await expect(page.getByText('✓ gespeichert')).toBeVisible();
 
@@ -229,29 +230,57 @@ test('Satz wegwischen, beim Beenden „Torso ändern“: das nächste Torso hat 
   await server.stop();
 });
 
-test('„Nur dieses Training“ lässt den Trainingstag, ein freies Training wird ein neuer Trainingstag', async ({ page, context }) => {
+test('„Weiter trainieren“ schließt nur, „Torso bleibt wie geplant“ lässt den Trainingstag, freies Training wird Trainingstag', async ({ page, context }) => {
   const { mock, server, url } = await setup(page, context);
   await page.getByRole('button', { name: 'Torso starten' }).click();
   await logSet(page, 'Butterfly (Maschine)', '1', '50', '10');
-  await finish(page);
-  await page.getByRole('dialog', { name: 'Torso geändert' }).getByRole('button', { name: 'Nur dieses Training' }).click();
+
+  // „Weiter trainieren“ schließt nur das Fenster: nichts ist beendet, kein leerer Satz ist weg.
+  let dlg = await endDialog(page);
+  await expect(dlg.getByText('Butterfly (Maschine): 1 statt 2 Sätze')).toBeVisible();
+  await expect(dlg.getByText('Nicht gemacht: Hyperextensions (2 Sätze)')).toBeVisible();
+  await dlg.getByRole('button', { name: 'Weiter trainieren' }).click();
+  await expect(dlg).toHaveCount(0);
+  await expect(page.getByText('beendet')).toHaveCount(0);
+  await expect(region(page, 'Butterfly (Maschine)').getByLabel('kg Satz 2', { exact: true })).toBeVisible();
+  await expect(region(page, 'Hyperextensions').getByLabel('kg Satz 1', { exact: true })).toBeVisible();
+
+  dlg = await endDialog(page);
+  await dlg.getByRole('button', { name: 'Beenden, Torso bleibt wie geplant' }).click();
+  await expect(dlg).toHaveCount(0);
+  await expect(page.getByText('beendet')).toBeVisible();
   await expect(page.getByText('✓ gespeichert')).toBeVisible();
   const torso = mock.rows('templates').find((t) => t.name === 'Torso')!;
   expect(mock.rows('template_exercises').filter((l) => l.template_id === torso.id && !l.deleted_at)).toHaveLength(12);
 
+  // Das nächste Torso zeigt wieder alle Übungen mit allen Sätzen.
   await page.goto(url);
+  await page.getByRole('button', { name: 'Torso starten' }).click();
+  await expect(region(page, 'Hyperextensions').getByLabel('kg Satz 2', { exact: true })).toBeVisible();
+  await expect(region(page, 'Butterfly (Maschine)').getByLabel('kg Satz 2', { exact: true })).toBeVisible();
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: 'Training verwerfen' }).click();
+
   await page.getByRole('button', { name: 'Freies Training' }).click();
   await page.getByRole('button', { name: '+ Übung hinzufügen' }).click();
   await page.getByLabel('Übung suchen').fill('Dips');
   await page.getByRole('button', { name: '„Dips“ anlegen' }).click();
   await logSet(page, 'Dips', '1', '0', '12');
-  await finish(page);
-  const dlg = page.getByRole('dialog', { name: 'Als Trainingstag speichern?' });
+  dlg = await endDialog(page);
+  await dlg.getByRole('button', { name: 'Als Trainingstag speichern' }).click();
   await dlg.getByLabel('Name des Trainingstags').fill('Pump');
   await dlg.getByRole('button', { name: 'Speichern' }).click();
   await expect(page.getByRole('heading', { name: 'Pump', exact: true })).toBeVisible();
+  await expect(page.getByText('beendet')).toBeVisible();
+
+  // Lief alles wie geplant, fragt die App nur „Training beenden?“.
   await page.goto(url);
-  await expect(page.getByRole('button', { name: 'Pump starten' })).toBeVisible();
+  await page.getByRole('button', { name: 'Pump starten' }).click();
+  await logSet(page, 'Dips', '1', '0', '12');
+  dlg = await endDialog(page);
+  await expect(dlg.getByRole('button')).toHaveText(['Beenden', 'Weiter trainieren']);
+  await dlg.getByRole('button', { name: 'Beenden', exact: true }).click();
+  await expect(page.getByText('beendet')).toBeVisible();
   await server.stop();
 });
 
@@ -267,8 +296,7 @@ test('dauerhafte Notiz, Aufwärmsatz, Rekord, Übung tauschen und Zusammenfassun
   await expect(bf.getByRole('button', { name: 'Dauerhafte Notiz: Sitz auf Stufe 4' })).toBeVisible();
   await logSet(page, 'Butterfly (Maschine)', '1', '50', '10');
   await expect(bf.getByRole('img', { name: 'neuer Rekord' })).toHaveCount(0); // erstes Mal: kein Rekord
-  await finish(page);
-  await page.getByRole('dialog', { name: 'Torso geändert' }).getByRole('button', { name: 'Nur dieses Training' }).click();
+  await (await endDialog(page)).getByRole('button', { name: 'Beenden, Torso bleibt wie geplant' }).click();
   const sum = page.getByRole('region', { name: 'Zusammenfassung' });
   await expect(sum).toContainText('500 kg');
 
@@ -291,8 +319,7 @@ test('dauerhafte Notiz, Aufwärmsatz, Rekord, Übung tauschen und Zusammenfassun
   await expect(region(page, 'Seitheben')).toHaveCount(0);
   await expect(region(page, 'Beinbeuger sitzend').getByLabel('kg Satz 3', { exact: true })).toBeVisible();
 
-  await finish(page);
-  await page.getByRole('dialog', { name: 'Torso geändert' }).getByRole('button', { name: 'Nur dieses Training' }).click();
+  await (await endDialog(page)).getByRole('button', { name: 'Beenden, Torso bleibt wie geplant' }).click();
   await expect(sum).toContainText('Neuer Rekord: Butterfly (Maschine), 55 × 10');
   await server.stop();
 });
